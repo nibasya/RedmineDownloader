@@ -177,7 +177,7 @@
       <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>cpprest_2_10.lib,brotlicommon.lib,brotlidec.lib,brotlienc.lib</AdditionalDependencies>
+      <AdditionalDependencies>cpprest_2_10.lib;crypt32.lib;bcrypt.lib;winhttp.lib</AdditionalDependencies>
     </Link>
     <Midl>
       <MkTypLibCompatible>false</MkTypLibCompatible>
@@ -191,7 +191,9 @@
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="CAboutDlg.h" />
     <ClInclude Include="framework.h" />
+    <ClInclude Include="GetLastErrorToString.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="RedmineDownloader.h" />
     <ClInclude Include="RedmineDownloaderDlg.h" />
@@ -199,6 +201,8 @@
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="CAboutDlg.cpp" />
+    <ClCompile Include="GetLastErrorToString.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>

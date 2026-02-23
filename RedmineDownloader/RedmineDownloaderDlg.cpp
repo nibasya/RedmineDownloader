@@ -6,7 +6,7 @@
 #include "RedmineDownloader.h"
 #include "RedmineDownloaderDlg.h"
 #include "afxdialogex.h"
-
+#include "CAboutDlg.h"
 #include <cpprest/json.h>
 #include <cpprest/filestream.h>
 #include <string>
@@ -20,45 +20,11 @@
 const CString IssueListFileName(_T("\\issue_list.json"));
 const CString IssueFileName(_T("\\_issue.json")); 
 
-// アプリケーションのバージョン情報に使われる CAboutDlg ダイアログ
-
-class CAboutDlg : public CDialogEx
-{
-public:
-	CAboutDlg();
-
-// ダイアログ データ
-#ifdef AFX_DESIGN_TIME
-	enum { IDD = IDD_ABOUTBOX };
-#endif
-
-	protected:
-	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV サポート
-
-// 実装
-protected:
-	DECLARE_MESSAGE_MAP()
-};
-
-CAboutDlg::CAboutDlg() : CDialogEx(IDD_ABOUTBOX)
-{
-}
-
-void CAboutDlg::DoDataExchange(CDataExchange* pDX)
-{
-	CDialogEx::DoDataExchange(pDX);
-}
-
-BEGIN_MESSAGE_MAP(CAboutDlg, CDialogEx)
-END_MESSAGE_MAP()
-
 
 // CRedmineDownloaderDlg ダイアログ
 
-
-
 CRedmineDownloaderDlg::CRedmineDownloaderDlg(CWnd* pParent /*=nullptr*/)
-	: CDialogEx(IDD_REDMINEDOWNLOADER_DIALOG, pParent), m_fStopThread(false), m_TargetLimit(0), m_WorkerNew(0), m_WorkerUpdate(0)
+	: CDialogEx(IDD_REDMINEDOWNLOADER_DIALOG, pParent), m_fStopThread(false), m_TargetLimit(0), m_WorkerNew(0), m_WorkerUpdate(0), m_TargetInterval(0)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -131,7 +97,7 @@ BOOL CRedmineDownloaderDlg::OnInitDialog()
 
 	// TODO: 初期化をここに追加します。
 	GetWindowRect(&m_DefParentRect);
-
+	SetWindowText(CAboutDlg::GetAppVersion());	// バージョン情報の設定
 	LoadSettings();	// 設定の読み込み
 
 	return TRUE;  // フォーカスをコントロールに設定した場合を除き、TRUE を返します。
@@ -172,6 +138,19 @@ void CRedmineDownloaderDlg::SaveSettings()
 	theApp.WriteProfileString(section, _T("Limit"), buff);
 	m_CtrlEditInterval.GetWindowText(buff);
 	theApp.WriteProfileString(section, _T("Interval"), buff);
+}
+
+void CRedmineDownloaderDlg::EnableGui(bool fEnable)
+{
+	m_CtrlEditUrl.EnableWindow(fEnable);
+	m_CtrlEditApiKey.EnableWindow(fEnable);
+	m_CtrlEditProjectId.EnableWindow(fEnable);
+	m_CtrlEditSaveTo.EnableWindow(fEnable);
+	m_CtrlEditLimit.EnableWindow(fEnable);
+	m_CtrlEditInterval.EnableWindow(fEnable);
+	m_CtrlButtonSaveTo.EnableWindow(fEnable);
+	m_CtrlButtonExecute.EnableWindow(fEnable);
+	m_CtrlButtonCancel.EnableWindow(!fEnable);
 }
 
 
@@ -302,6 +281,8 @@ void CRedmineDownloaderDlg::OnBnClickedButtonExecute()
     m_CtrlEditProjectId.GetWindowText(m_TargetProjectId); // プロジェクトID入力欄から取得
 	m_CtrlEditLimit.GetWindowText(buff);	// 制限入力欄から取得
 	m_TargetLimit = _ttoi(buff);
+	m_CtrlEditInterval.GetWindowText(buff);	// インターバル入力欄から取得
+	m_TargetInterval = _ttof(buff);
 
 	if (m_TargetFolder.IsEmpty() || m_TargetUrl.IsEmpty() || m_TargetApi.IsEmpty() || m_TargetProjectId.IsEmpty() || m_TargetLimit == 0)
 	{
@@ -317,8 +298,7 @@ void CRedmineDownloaderDlg::OnBnClickedButtonExecute()
 	}
 
 	// スレッド実行準備
-	m_CtrlButtonExecute.EnableWindow(FALSE); // 実行ボタンを無効化して、二重実行を防止
-	m_CtrlButtonCancel.EnableWindow(TRUE); // キャンセルボタンを有効化
+	EnableGui(false); // GUIを無効化
 
 	m_fStopThread = false; // ワーカースレッドの停止フラグをリセット
 	m_cts = pplx::cancellation_token_source();	// cpprestのタスクキャンセルトークンを初期化
@@ -407,6 +387,7 @@ void CRedmineDownloaderDlg::GetIssueList()
 		totalCount = jsonResponse[L"total_count"].as_integer();	// responseからissue数を抽出
 		m_WorkerTotal.Format(_T("%d"), totalCount);
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_TOTAL, 0, 0);
+		Sleep((DWORD)(m_TargetInterval * 1000));
 
 		// issueListの初期化
 		issueListJson = jsonResponse;
@@ -426,6 +407,7 @@ void CRedmineDownloaderDlg::GetIssueList()
 			for (const auto& issue : issues.as_array()) {
 				issueListArray[issueListArray.size()] = issue;	// 取得したIssueをissueListArray末尾に追加
 			}
+			Sleep((DWORD)(m_TargetInterval * 1000));
 		}
 
 		m_WorkerStatus = _T("Issue一覧の保存");
@@ -532,7 +514,7 @@ void CRedmineDownloaderDlg::LoadJson(web::json::value& jsonResponse, const CStri
 {
 	CStdioFile file;
 	if (!file.Open(json, CFile::modeRead)) {
-		m_WorkerStatus.Format(_T("JSONファイルの読み込みに失敗: %s"), json);
+		m_WorkerStatus.Format(_T("JSONファイルの読み込みに失敗: %s"), (LPCTSTR)json);
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 		throw CWorkerError();
 	}
@@ -572,6 +554,7 @@ void CRedmineDownloaderDlg::GetIssue()
 		m_WorkerStatus.Format(_T("新規Issueの取得: %d/%d"), i, m_WorkerNew);
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 		GetIssue(id);
+		Sleep((DWORD)(m_TargetInterval * 1000));
 	}
 	i = 0;
 	for (auto id : m_UpdateIssue) {
@@ -579,6 +562,7 @@ void CRedmineDownloaderDlg::GetIssue()
 		m_WorkerStatus.Format(_T("更新されたIssueの取得: %d/%d"), i, m_WorkerUpdate);
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 		GetIssue(id);
+		Sleep((DWORD)(m_TargetInterval * 1000));
 	}
 }
 
@@ -675,6 +659,7 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 					bodyStream.read_to_end(outStream.streambuf()).get();
 					outStream.close().get();
 				}
+				Sleep((DWORD)(m_TargetInterval * 1000));
 			}
 		}
 
@@ -689,9 +674,8 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 
 LRESULT CRedmineDownloaderDlg::OnWorkerStopped(WPARAM wParam, LPARAM lParam)
 {
-    // UI はメインスレッドで安全に更新する
-    m_CtrlButtonExecute.EnableWindow(TRUE);
-    m_CtrlButtonCancel.EnableWindow(FALSE);
+	EnableGui(true);	// GUIを有効化
+
 //    m_CtrlEditStatus.SetWindowText(_T("停止しました"));	// 本関数はエラー発生時にも呼び出されるため、ここではStatus表示を更新しない
     // 必要なら他の UI 更新やログ処理をここに追加
     return 0;
