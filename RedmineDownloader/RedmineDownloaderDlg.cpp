@@ -8,6 +8,7 @@
 #include "afxdialogex.h"
 
 #include <cpprest/json.h>
+#include <cpprest/filestream.h>
 #include <string>
 #include <sstream>
 #include "rptt.h"
@@ -17,7 +18,7 @@
 #endif
 
 const CString IssueListFileName(_T("\\issue_list.json"));
-const CString IssueFileName(_T("\\issue.json")); 
+const CString IssueFileName(_T("\\_issue.json")); 
 
 // アプリケーションのバージョン情報に使われる CAboutDlg ダイアログ
 
@@ -515,8 +516,7 @@ void CRedmineDownloaderDlg::UpdateLists()
 		CString issueJsonPath;
 		issueJsonPath.Format(_T("%s\\%d%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)IssueFileName);	// IssueのJSONファイルのパスを構築
 		LoadJson(currentIssue, issueJsonPath);	// IssueのJSONファイルを読み込む
-		auto val = currentIssue[L"issue"];
-		std::wstring updatedOnOld = val[L"updated_on"].as_string();
+		std::wstring updatedOnOld = currentIssue[L"issue"][L"updated_on"].as_string();
 		std::wstring updatedOnNew = issue[L"updated_on"].as_string();
 		if (updatedOnOld != updatedOnNew) {
 			m_UpdateIssue.push_back(issueID);
@@ -532,6 +532,8 @@ void CRedmineDownloaderDlg::LoadJson(web::json::value& jsonResponse, const CStri
 {
 	CStdioFile file;
 	if (!file.Open(json, CFile::modeRead)) {
+		m_WorkerStatus.Format(_T("JSONファイルの読み込みに失敗: %s"), json);
+		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 		throw CWorkerError();
 	}
 	CFileStatus fileStat;
@@ -561,6 +563,9 @@ void CRedmineDownloaderDlg::LoadJson(web::json::value& jsonResponse, const CStri
 
 void CRedmineDownloaderDlg::GetIssue()
 {
+	m_WorkerStatus = _T("Issueの保存");
+	::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
+
 	int i = 0;
 	for (auto id : m_NewIssue) {
 		i++;
@@ -611,21 +616,68 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 		CString saveTo;
 		saveTo.Format(_T("%s\\%d\\%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)IssueFileName);	// 保存先のファイルパスを構築
 		CStdioFile file;
-		if (file.Open(saveTo, CFile::modeCreate | CFile::modeWrite)) {
-			// UTF-8で保存したい場合
-			std::ostringstream oss;
-			jsonResponse.serialize(oss);	// JSONをシリアル化 (UTF-8の文字列になる)
-			file.Write((WCHAR*)oss.str().c_str(), (UINT)oss.str().size());	// JSONをファイルに保存
-			// UTF-16で保存したい場合
-			//utility::string_t wstr = jsonResponse.serialize();	// JSONをシリアル化 (UTF-16の文字列になる)
-			//file.Write((WCHAR*)wstr.c_str(), wstr.size()*sizeof(WCHAR));	// JSONをファイルに保存
-			file.Close();
-		}
-		else {
+		if (!file.Open(saveTo, CFile::modeCreate | CFile::modeWrite)) {
 			m_WorkerStatus.Format(_T("Failed to save issue: %d"), issueID);
 			::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 			throw CWorkerError();
 		}
+		// UTF-8で保存したい場合
+		std::ostringstream oss;
+		jsonResponse.serialize(oss);	// JSONをシリアル化 (UTF-8の文字列になる)
+		file.Write((WCHAR*)oss.str().c_str(), (UINT)oss.str().size());	// JSONをファイルに保存
+		// UTF-16で保存したい場合
+		//utility::string_t wstr = jsonResponse.serialize();	// JSONをシリアル化 (UTF-16の文字列になる)
+		//file.Write((WCHAR*)wstr.c_str(), wstr.size()*sizeof(WCHAR));	// JSONをファイルに保存
+		file.Close();
+
+		// すでに存在する履歴を調査する
+		CString historyPath;
+		for (int count = 1; ; count++) {
+			historyPath.Format(_T("%s\\%d\\%d.json"), (LPCTSTR)m_TargetFolder, issueID, count);
+			if (!PathFileExists(historyPath)) {
+				break;	// 履歴の保存先のファイルパスを構築して、存在しないファイルが見つかるまでループ
+			}
+		}
+		// 新履歴として保存する
+		CopyFile(saveTo, historyPath, FALSE);
+
+		// 添付ファイルのダウンロード
+		auto& issue = jsonResponse[L"issue"];
+		if(issue.has_field(L"attachments")) {	// 添付ファイルがあるか確認
+			auto attachments = issue[L"attachments"].as_array();
+			for (auto& attachment : attachments) {
+				CString fileUrl = attachment[L"content_url"].as_string().c_str();	// 添付ファイルのURLを取得
+				CString fileName = attachment[L"filename"].as_string().c_str();	// 添付ファイルの名前を取得
+				CString createdOn = attachment[L"created_on"].as_string().c_str();	// 添付ファイルの作成日時を取得
+				
+				// 作成日時をJSTに変換してファイル名に追加
+				COleDateTime dtUtc;
+				COleDateTime dtJst;
+				if (dtUtc.ParseDateTime(createdOn)) {
+					dtJst = dtUtc + COleDateTimeSpan(0, 9, 0, 0);	// UTCからJSTへの変換
+				}
+
+				CString savePath;
+				savePath.Format(_T("%s\\%d\\%s_%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)dtJst.Format(_T("%Y%m%d_%H%M%S")), (LPCTSTR)fileName);	// 添付ファイルの保存先のファイルパスを構築
+				if (PathFileExists(savePath)) {	// すでに同名のファイルが存在する場合はスキップ
+					continue;
+				}
+
+				// 添付ファイルをダウンロードして保存する
+				web::http::client::http_client fileClient(utility::conversions::to_string_t((LPCTSTR)m_TargetUrl));
+				web::http::http_request fileRequest(web::http::methods::GET);
+				fileRequest.headers().add(L"X-Redmine-API-Key", utility::conversions::to_string_t((LPCTSTR)m_TargetApi));
+				fileRequest.set_request_uri((LPCTSTR)fileUrl);
+				web::http::http_response fileResponse = fileClient.request(fileRequest, m_cts.get_token()).get();
+				if (fileResponse.status_code() == web::http::status_codes::OK) {
+					auto bodyStream = fileResponse.body();
+					auto outStream = concurrency::streams::fstream::open_ostream(utility::conversions::to_string_t((LPCTSTR)savePath)).get();
+					bodyStream.read_to_end(outStream.streambuf()).get();
+					outStream.close().get();
+				}
+			}
+		}
+
 	}
 	catch (const web::http::http_exception e)
 	{
