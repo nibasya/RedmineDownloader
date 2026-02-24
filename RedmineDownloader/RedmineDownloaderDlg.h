@@ -97,6 +97,9 @@ private:
 	void LoadJson(web::json::value& jsonResponse, const CString& json);	// jsonを読み込む。
 	void GetIssue();		// 個別Issueを取得する。エラー時にCWorkerErrorを投げる。
 	void GetIssue(UINT issueID);		// 個別Issueを取得する。エラー時にCWorkerErrorを投げる。
+	CString PrepareLongPath(CString path);	// CString を受け取り、長いパス用に加工して返す関数
+
+
 };
 
 // ワーカースレッドからCRedmineDownloaderDlgへの通知用メッセージ

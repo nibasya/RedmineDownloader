@@ -290,6 +290,8 @@ void CRedmineDownloaderDlg::OnBnClickedButtonExecute()
 		return;
 	}
 
+	m_TargetFolder = PrepareLongPath(m_TargetFolder);
+
 	// 保存先フォルダの存在チェック
 	DWORD dwAttr = ::GetFileAttributes((LPCTSTR)m_TargetFolder);
 	if (dwAttr == INVALID_FILE_ATTRIBUTES || !(dwAttr & FILE_ATTRIBUTE_DIRECTORY)) {
@@ -363,6 +365,10 @@ UINT __cdecl CRedmineDownloaderDlg::WorkerThread(LPVOID pParam)
 	catch (CWorkerError e) {
 		(void)e;	// remove C4101 unreferenced local variable warning
 	}
+	catch (std::exception e) {
+		pDlg->m_WorkerStatus.Format(_T("エラー: %s"), (LPCTSTR)CString(e.what()));
+		::PostMessage(pDlg->m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0); // 完了したことをステータスに表示
+	}
 
 	::PostMessage(pDlg->m_hWnd, WM_WORKER_STOPPED, 0, 0); // スレッド停止をメインスレッドに通知
 	return 0;
@@ -415,23 +421,19 @@ void CRedmineDownloaderDlg::GetIssueList()
 
 		issueListJson[L"issues"] = issueListArray;	// まとめたIssue ListをissueListJsonに追加
 		CString saveTo(m_TargetFolder + IssueListFileName);	// 保存先のファイルパスを構築
-		CStdioFile file;
-		if (file.Open(saveTo, CFile::modeCreate | CFile::modeWrite)) {
-			// UTF-8で保存したい場合
-			std::ostringstream oss;
-			issueListJson.serialize(oss);	// JSONをシリアル化 (UTF-8の文字列になる)
-			file.Write((WCHAR*)oss.str().c_str(), (UINT)oss.str().size());	// JSONをファイルに保存
-
-			// UTF-16で保存したい場合
-			//utility::string_t wstr = issueListJson.serialize();	// JSONをシリアル化 (UTF-16の文字列になる)
-			//file.Write((WCHAR*)wstr.c_str(), wstr.size()*sizeof(WCHAR));	// JSONをファイルに保存
-
-			file.Close();
-		} else {
+		FILE* pFile = NULL;
+		errno_t err = _wfopen_s(&pFile, saveTo, L"w");
+		if (err != 0 || pFile == NULL) {
 			m_WorkerStatus = _T("Issue一覧の保存に失敗");
 			::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 			throw CWorkerError();
 		}
+		std::ostringstream oss;
+		issueListJson.serialize(oss);	// JSONをシリアル化 (UTF-8の文字列になる)
+		//utility::string_t wstr = issueListJson.serialize();	// JSONをシリアル化 (UTF-16の文字列になる)
+		fwrite((WCHAR*)oss.str().c_str(), sizeof(char), oss.str().size(), pFile);	// JSONをファイルに保存
+		fclose(pFile);
+
 		m_WorkerStatus = _T("Issue一覧の保存完了");
 	}
 	catch (const web::http::http_exception e)
@@ -497,6 +499,12 @@ void CRedmineDownloaderDlg::UpdateLists()
 		web::json::value currentIssue;
 		CString issueJsonPath;
 		issueJsonPath.Format(_T("%s\\%d%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)IssueFileName);	// IssueのJSONファイルのパスを構築
+		// issue.jsonが存在しない場合は更新が必要とみなす
+		if (PathFileExists((LPCTSTR)issueJsonPath) == FALSE) {
+			m_UpdateIssue.push_back(issueID);
+			continue;
+		}
+		// issue.jsonが存在する場合は、updated_onを比較して更新が必要か確認する
 		LoadJson(currentIssue, issueJsonPath);	// IssueのJSONファイルを読み込む
 		std::wstring updatedOnOld = currentIssue[L"issue"][L"updated_on"].as_string();
 		std::wstring updatedOnNew = issue[L"updated_on"].as_string();
@@ -512,35 +520,38 @@ void CRedmineDownloaderDlg::UpdateLists()
 
 void CRedmineDownloaderDlg::LoadJson(web::json::value& jsonResponse, const CString& json)
 {
-	CStdioFile file;
-	if (!file.Open(json, CFile::modeRead)) {
+	FILE* pFile = nullptr;
+	errno_t err = _wfopen_s(&pFile, json, L"rb");
+	if (err != 0 || pFile == nullptr) {
 		m_WorkerStatus.Format(_T("JSONファイルの読み込みに失敗: %s"), (LPCTSTR)json);
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 		throw CWorkerError();
 	}
-	CFileStatus fileStat;
-	file.GetStatus(fileStat);
-	// UTF-8で保存した場合
-	CHAR* buffer = new CHAR[(UINT)(fileStat.m_size / sizeof(CHAR)) + 1];	// ファイルサイズに基づいてバッファを確保
-	file.Read(buffer, (UINT)fileStat.m_size);	// ファイルをバッファに読み込む
-	buffer[fileStat.m_size / sizeof(CHAR)] = L'\0';	// バッファの末尾にNULL文字を追加
-	try {
-		jsonResponse = web::json::value::parse(utility::conversions::utf8_to_utf16((char*)buffer));	// バッファからJSONを解析
-	}
-	// UTF-16で保存した場合
-	//WCHAR* buffer = new WCHAR[(UINT)(fileStat.m_size / sizeof(WCHAR)) + 1];	// ファイルサイズに基づいてバッファを確保
-	//file.Read(buffer, (UINT)fileStat.m_size);	// ファイルをバッファに読み込む
-	//buffer[fileStat.m_size / sizeof(WCHAR)] = L'\0';	// バッファの末尾にNULL文字を追加
-	//try {
-	//	jsonResponse = web::json::value::parse(buffer);	// バッファからJSONを解析
-	//}
-	catch (const web::json::json_exception e) {
-		m_WorkerStatus = CString(CA2W(e.what(), CP_UTF8));
+
+	// ファイルサイズを取得
+	if (_fseeki64(pFile, 0, SEEK_END) != 0) {
+		fclose(pFile);
+		m_WorkerStatus.Format(_T("JSONファイルの読み込みに失敗: %s"), (LPCTSTR)json);
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
-		delete buffer;
 		throw CWorkerError();
 	}
-	delete buffer;
+	long long fileSize = _ftelli64(pFile);
+	if (fileSize < 0) fileSize = 0;
+	_fseeki64(pFile, 0, SEEK_SET);
+
+	std::vector<char> buffer((size_t)fileSize + 1);
+	size_t readBytes = fread(buffer.data(), 1, (size_t)fileSize, pFile);
+	buffer[readBytes] = '\0';
+	fclose(pFile);
+
+	try {
+		jsonResponse = web::json::value::parse(utility::conversions::utf8_to_utf16(buffer.data()));
+	}
+	catch (const web::json::json_exception& e) {
+		m_WorkerStatus = CString(CA2W(e.what(), CP_UTF8));
+		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
+		throw CWorkerError();
+	}
 }
 
 void CRedmineDownloaderDlg::GetIssue()
@@ -568,7 +579,10 @@ void CRedmineDownloaderDlg::GetIssue()
 
 void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 {
+	CString origMsg = m_WorkerStatus;
 	try {
+		m_WorkerStatus.Format(_T("%s downloading issue: %d"), (LPCTSTR)origMsg, issueID);
+		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 		// Issueを取得する
 		web::http::client::http_client client(utility::conversions::to_string_t((LPCTSTR)m_TargetUrl));
 		// リクエストURIを構築
@@ -598,32 +612,19 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 		// IssueのJSONをファイルに保存
 		web::json::value jsonResponse = response.extract_json().get();
 		CString saveTo;
-		saveTo.Format(_T("%s\\%d\\%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)IssueFileName);	// 保存先のファイルパスを構築
-		CStdioFile file;
-		if (!file.Open(saveTo, CFile::modeCreate | CFile::modeWrite)) {
+		saveTo.Format(_T("%s\\%d%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)IssueFileName);	// 保存先のファイルパスを構築
+		FILE* pFile = NULL;
+		errno_t err = _wfopen_s(&pFile, saveTo, L"w");
+		if (err != 0 || pFile == NULL) {
 			m_WorkerStatus.Format(_T("Failed to save issue: %d"), issueID);
 			::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 			throw CWorkerError();
 		}
-		// UTF-8で保存したい場合
 		std::ostringstream oss;
 		jsonResponse.serialize(oss);	// JSONをシリアル化 (UTF-8の文字列になる)
-		file.Write((WCHAR*)oss.str().c_str(), (UINT)oss.str().size());	// JSONをファイルに保存
-		// UTF-16で保存したい場合
 		//utility::string_t wstr = jsonResponse.serialize();	// JSONをシリアル化 (UTF-16の文字列になる)
-		//file.Write((WCHAR*)wstr.c_str(), wstr.size()*sizeof(WCHAR));	// JSONをファイルに保存
-		file.Close();
-
-		// すでに存在する履歴を調査する
-		CString historyPath;
-		for (int count = 1; ; count++) {
-			historyPath.Format(_T("%s\\%d\\%d.json"), (LPCTSTR)m_TargetFolder, issueID, count);
-			if (!PathFileExists(historyPath)) {
-				break;	// 履歴の保存先のファイルパスを構築して、存在しないファイルが見つかるまでループ
-			}
-		}
-		// 新履歴として保存する
-		CopyFile(saveTo, historyPath, FALSE);
+		fwrite((WCHAR*)oss.str().c_str(), sizeof(char), oss.str().size(), pFile);	// JSONをファイルに保存
+		fclose(pFile);
 
 		// 添付ファイルのダウンロード
 		auto& issue = jsonResponse[L"issue"];
@@ -637,6 +638,8 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 				// 作成日時をJSTに変換してファイル名に追加
 				COleDateTime dtUtc;
 				COleDateTime dtJst;
+				createdOn.Replace(L"T", L" ");
+				createdOn.Replace(L"Z", L"");
 				if (dtUtc.ParseDateTime(createdOn)) {
 					dtJst = dtUtc + COleDateTimeSpan(0, 9, 0, 0);	// UTCからJSTへの変換
 				}
@@ -647,22 +650,40 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 					continue;
 				}
 
+				m_WorkerStatus.Format(_T("%s downloading issue: %d file: %s"), (LPCTSTR)origMsg, issueID, (LPCTSTR)fileName);
+				::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
+
 				// 添付ファイルをダウンロードして保存する
-				web::http::client::http_client fileClient(utility::conversions::to_string_t((LPCTSTR)m_TargetUrl));
+				web::http::client::http_client fileClient(utility::conversions::to_string_t((LPCTSTR)fileUrl));
 				web::http::http_request fileRequest(web::http::methods::GET);
 				fileRequest.headers().add(L"X-Redmine-API-Key", utility::conversions::to_string_t((LPCTSTR)m_TargetApi));
-				fileRequest.set_request_uri((LPCTSTR)fileUrl);
 				web::http::http_response fileResponse = fileClient.request(fileRequest, m_cts.get_token()).get();
-				if (fileResponse.status_code() == web::http::status_codes::OK) {
-					auto bodyStream = fileResponse.body();
-					auto outStream = concurrency::streams::fstream::open_ostream(utility::conversions::to_string_t((LPCTSTR)savePath)).get();
-					bodyStream.read_to_end(outStream.streambuf()).get();
-					outStream.close().get();
+				if (fileResponse.status_code() != web::http::status_codes::OK) {
+					// 添付ファイルのダウンロードに失敗した場合はissue.jsonを削除して処理を中断する
+					DeleteFile(saveTo);
+					m_WorkerStatus.Format(_T("Issue %d: Failed to download attachment: %s"), issueID, (LPCTSTR)fileName);
+					::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
+					throw CWorkerError();
 				}
+				auto bodyStream = fileResponse.body();
+				auto outStream = concurrency::streams::fstream::open_ostream(utility::conversions::to_string_t((LPCTSTR)savePath)).get();
+				bodyStream.read_to_end(outStream.streambuf()).get();
+				outStream.close().get();
+
+				// すでに存在する履歴を調査する
+				CString historyPath;
+				for (int count = 1; ; count++) {
+					historyPath.Format(_T("%s\\%d\\%d.json"), (LPCTSTR)m_TargetFolder, issueID, count);
+					if (!PathFileExists(historyPath)) {
+						break;	// 履歴の保存先のファイルパスを構築して、存在しないファイルが見つかるまでループ
+					}
+				}
+				// 新履歴として保存する
+				CopyFile(saveTo, historyPath, FALSE);
+
 				Sleep((DWORD)(m_TargetInterval * 1000));
 			}
 		}
-
 	}
 	catch (const web::http::http_exception e)
 	{
@@ -681,3 +702,34 @@ LRESULT CRedmineDownloaderDlg::OnWorkerStopped(WPARAM wParam, LPARAM lParam)
     return 0;
 }
 
+CString CRedmineDownloaderDlg::PrepareLongPath(CString path) {
+	// 1. すでにプレフィックスがある場合はそのまま返す
+	if (path.Left(4) == _T("\\\\?\\")) {
+		return (LPCTSTR)path;
+	}
+
+	// 2. 絶対パスを取得する
+	// MAX_PATHを超えても取得できるよう、大きめのバッファを確保
+	const int bufferSize = 32768;
+	TCHAR fullPathBuffer[bufferSize];
+	if (::GetFullPathName(path, bufferSize, fullPathBuffer, NULL) == 0) {
+		return (LPCTSTR)path; // エラー時は元のパスを返す
+	}
+
+	CString fullPath(fullPathBuffer);
+
+	// 3. 長いパス用のプレフィックスを付与
+	CString longPath;
+	if (fullPath.Left(2) == _T("\\\\")) {
+		// UNCパス (\\server\share) の場合
+		// -> \\?\UNC\server\share
+		longPath.Format(_T("\\\\?\\UNC\\%s"), (LPCTSTR)fullPath.Mid(2));
+	}
+	else {
+		// ローカルパス (C:\folder) の場合
+		// -> \\?\C:\folder
+		longPath.Format(_T("\\\\?\\%s"), (LPCTSTR)fullPath);
+	}
+
+	return longPath;
+}
