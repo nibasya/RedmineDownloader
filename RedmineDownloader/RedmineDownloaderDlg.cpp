@@ -24,7 +24,7 @@ const CString IssueFileName(_T("\\_issue.json"));
 // CRedmineDownloaderDlg ダイアログ
 
 CRedmineDownloaderDlg::CRedmineDownloaderDlg(CWnd* pParent /*=nullptr*/)
-	: CDialogEx(IDD_REDMINEDOWNLOADER_DIALOG, pParent), m_fStopThread(false), m_WorkerNew(0), m_WorkerUpdate(0), m_TargetInterval(0)
+    : CDialogEx(IDD_REDMINEDOWNLOADER_DIALOG, pParent), m_fStopThread(false), m_WorkerNew(0), m_WorkerUpdate(0), m_TargetInterval(0), m_fAutoExecute(false)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -98,6 +98,14 @@ BOOL CRedmineDownloaderDlg::OnInitDialog()
 	GetWindowRect(&m_DefParentRect);
 	SetWindowText(CAboutDlg::GetAppVersion());	// バージョン情報の設定
 	LoadSettings();	// 設定の読み込み
+
+	// 起動引数に -x が含まれている場合は自動実行フラグを立て、実行ボタンをクリックする
+	CString cmdLine = AfxGetApp()->m_lpCmdLine;
+	if (cmdLine.Find(_T("-x")) != -1) {
+		m_fAutoExecute = true;
+		// ダイアログ初期化後にコマンドをポストしてボタンクリックをシミュレート
+		PostMessage(WM_COMMAND, MAKEWPARAM(IDC_BUTTON_EXECUTE, BN_CLICKED), (LPARAM)m_CtrlButtonExecute.GetSafeHwnd());
+	}
 
 	return TRUE;  // フォーカスをコントロールに設定した場合を除き、TRUE を返します。
 }
@@ -689,7 +697,12 @@ LRESULT CRedmineDownloaderDlg::OnWorkerStopped(WPARAM wParam, LPARAM lParam)
 {
 	EnableGui(true);	// GUIを有効化
 
-//    m_CtrlEditStatus.SetWindowText(_T("停止しました"));	// 本関数はエラー発生時にも呼び出されるため、ここではStatus表示を更新しない
+    // 本関数はエラー発生時にも呼び出されるため、ここではStatus表示を更新しない
+    // 自動実行モードならワーカ停止時にアプリケーションを終了する
+    if (m_fAutoExecute) {
+        m_fAutoExecute = false;
+        PostMessage(WM_CLOSE);
+    }
     // 必要なら他の UI 更新やログ処理をここに追加
     return 0;
 }

@@ -71,6 +71,7 @@ private:
 	bool m_fStopThread;		// ワーカースレッドの停止用フラグ
 	pplx::cancellation_token_source m_cts;	// cpprestの停止用トークン
 	class CWorkerError {};	// ワーカースレッドを終了させるための例外クラス
+	bool m_fAutoExecute;	// 自動実行フラグ（起動引数 -x 用）
 
 	// ワーカースレッドとのI/F変数
 	CString m_WorkerStatus;	// ワーカースレッドのステータス
