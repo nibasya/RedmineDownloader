@@ -24,7 +24,7 @@ const CString IssueFileName(_T("\\_issue.json"));
 // CRedmineDownloaderDlg ダイアログ
 
 CRedmineDownloaderDlg::CRedmineDownloaderDlg(CWnd* pParent /*=nullptr*/)
-	: CDialogEx(IDD_REDMINEDOWNLOADER_DIALOG, pParent), m_fStopThread(false), m_TargetLimit(0), m_WorkerNew(0), m_WorkerUpdate(0), m_TargetInterval(0)
+	: CDialogEx(IDD_REDMINEDOWNLOADER_DIALOG, pParent), m_fStopThread(false), m_WorkerNew(0), m_WorkerUpdate(0), m_TargetInterval(0)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -37,7 +37,6 @@ void CRedmineDownloaderDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_EDIT_PROJECT_ID, m_CtrlEditProjectId);
 	DDX_Control(pDX, IDC_EDIT_SAVETO, m_CtrlEditSaveTo);
 	DDX_Control(pDX, IDC_BUTTON_SAVETO, m_CtrlButtonSaveTo);
-	DDX_Control(pDX, IDC_EDIT_LIMIT, m_CtrlEditLimit);
 	DDX_Control(pDX, IDC_EDIT_INTERVAL, m_CtrlEditInterval);
 	DDX_Control(pDX, IDC_EDIT_STATUS, m_CtrlEditStatus);
 	DDX_Control(pDX, IDC_EDIT_TOTAL, m_CtrlEditTotal);
@@ -118,7 +117,6 @@ void CRedmineDownloaderDlg::LoadSettings()
 	m_CtrlEditApiKey.SetWindowText(theApp.GetProfileString(section, _T("ApiKey"), _T("")));
 	m_CtrlEditProjectId.SetWindowText(theApp.GetProfileString(section, _T("ProjectId"), _T("")));
 	m_CtrlEditSaveTo.SetWindowText(theApp.GetProfileString(section, _T("SaveTo"), _T("")));
-	m_CtrlEditLimit.SetWindowText(theApp.GetProfileString(section, _T("Limit"), _T("0")));
 	m_CtrlEditInterval.SetWindowText(theApp.GetProfileString(section, _T("Interval"), _T("0")));
 }
 
@@ -134,8 +132,6 @@ void CRedmineDownloaderDlg::SaveSettings()
 	theApp.WriteProfileString(section, _T("ProjectId"), buff);
 	m_CtrlEditSaveTo.GetWindowText(buff);
 	theApp.WriteProfileString(section, _T("SaveTo"), buff);
-	m_CtrlEditLimit.GetWindowText(buff);
-	theApp.WriteProfileString(section, _T("Limit"), buff);
 	m_CtrlEditInterval.GetWindowText(buff);
 	theApp.WriteProfileString(section, _T("Interval"), buff);
 }
@@ -146,7 +142,6 @@ void CRedmineDownloaderDlg::EnableGui(bool fEnable)
 	m_CtrlEditApiKey.EnableWindow(fEnable);
 	m_CtrlEditProjectId.EnableWindow(fEnable);
 	m_CtrlEditSaveTo.EnableWindow(fEnable);
-	m_CtrlEditLimit.EnableWindow(fEnable);
 	m_CtrlEditInterval.EnableWindow(fEnable);
 	m_CtrlButtonSaveTo.EnableWindow(fEnable);
 	m_CtrlButtonExecute.EnableWindow(fEnable);
@@ -279,14 +274,12 @@ void CRedmineDownloaderDlg::OnBnClickedButtonExecute()
 	m_CtrlEditUrl.GetWindowText(m_TargetUrl); // URL入力欄から取得
     m_CtrlEditApiKey.GetWindowText(m_TargetApi); // APIキー入力欄から取得
     m_CtrlEditProjectId.GetWindowText(m_TargetProjectId); // プロジェクトID入力欄から取得
-	m_CtrlEditLimit.GetWindowText(buff);	// 制限入力欄から取得
-	m_TargetLimit = _ttoi(buff);
 	m_CtrlEditInterval.GetWindowText(buff);	// インターバル入力欄から取得
 	m_TargetInterval = _ttof(buff);
 
-	if (m_TargetFolder.IsEmpty() || m_TargetUrl.IsEmpty() || m_TargetApi.IsEmpty() || m_TargetProjectId.IsEmpty() || m_TargetLimit == 0)
+	if (m_TargetFolder.IsEmpty() || m_TargetUrl.IsEmpty() || m_TargetApi.IsEmpty() || m_TargetProjectId.IsEmpty())
 	{
-		MessageBox(_T("保存先、URL、APIキー、プロジェクトID、制限値を入力してください。"));
+		MessageBox(_T("保存先、URL、APIキー、プロジェクトIDを入力してください。"));
 		return;
 	}
 
@@ -381,34 +374,29 @@ void CRedmineDownloaderDlg::GetIssueList()
 		web::http::http_response response;
 		web::json::value jsonResponse;
 		web::json::value issueListJson;
-
-		// Issue数を取得する
-		int totalCount = 0;
-
-		m_WorkerStatus = _T("Issue数の取得");
-		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
-
-		GetIssueListSub(1, 0, response);	// Issuesを取得
-		jsonResponse = response.extract_json().get();
-		totalCount = jsonResponse[L"total_count"].as_integer();	// responseからissue数を抽出
-		m_WorkerTotal.Format(_T("%d"), totalCount);
-		::PostMessage(m_hWnd, WM_WORKER_UPDATE_TOTAL, 0, 0);
-		Sleep((DWORD)(m_TargetInterval * 1000));
-
-		// issueListの初期化
-		issueListJson = jsonResponse;
-		issueListJson.erase(L"issues");	// Issuesは後でまとめて取得するため、ここでは削除しておく
-
 		web::json::value issueListArray = web::json::value::array();
 
+		const int initialValue = 10000000;
+		int limit = initialValue;
+		int totalCount = initialValue;
+
 		// Issue Listを取得する
-		int endPage = (totalCount + m_TargetLimit - 1) / m_TargetLimit;
-		for (int page = 1; page <= endPage; page++) {
-			m_WorkerStatus.Format(_T("Issue一覧の取得 %d/%d"), page, endPage);
+		for (int offset = 0; offset < totalCount; offset += limit) {	// totalCount, limitは1ページ目のresponseから取得した値を使用
+			if (limit == initialValue) {
+				m_WorkerStatus.Format(_T("Issue一覧の取得"));
+			}
+			else {
+				m_WorkerStatus.Format(_T("Issue一覧の取得 %d/%d"), GetPage(offset, limit), GetPage(totalCount, limit));
+			}
 			::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 
-			GetIssueListSub(m_TargetLimit, m_TargetLimit * (page - 1), response);	// Issuesを取得
+			// limitやtotalCountの更新、Issuesの取得
+			GetIssueListSub(limit, offset, response);
 			jsonResponse = response.extract_json().get();
+			limit = jsonResponse[L"limit"].as_integer();	// responseからlimitを抽出
+			totalCount = jsonResponse[L"total_count"].as_integer();	// responseからissue数を抽出
+			m_WorkerTotal.Format(_T("%d"), totalCount);
+			::PostMessageW(m_hWnd, WM_WORKER_UPDATE_TOTAL, 0, 0);
 			auto issues = jsonResponse[L"issues"];
 			for (const auto& issue : issues.as_array()) {
 				issueListArray[issueListArray.size()] = issue;	// 取得したIssueをissueListArray末尾に追加
@@ -419,7 +407,9 @@ void CRedmineDownloaderDlg::GetIssueList()
 		m_WorkerStatus = _T("Issue一覧の保存");
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 
-		issueListJson[L"issues"] = issueListArray;	// まとめたIssue ListをissueListJsonに追加
+		issueListJson = jsonResponse;
+		issueListJson[L"issues"] = issueListArray;	// まとめたIssue ListをissueListJsonにセット
+		issueListJson[L"offset"] = web::json::value::number(0);	// offsetを0にセット
 		CString saveTo(m_TargetFolder + IssueListFileName);	// 保存先のファイルパスを構築
 		FILE* pFile = NULL;
 		errno_t err = _wfopen_s(&pFile, saveTo, L"w");
@@ -463,7 +453,8 @@ void CRedmineDownloaderDlg::GetIssueListSub(int limit, int offset, web::http::ht
 
 	// 成功したかチェック
 	if (response.status_code() != web::http::status_codes::OK) {
-		m_WorkerStatus = _T("Failed to get issue lists");
+		m_WorkerStatus.Format(_T("Failed to get issue lists: %s"), (LPCTSTR)response.reason_phrase().c_str());
+		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 		throw CWorkerError();
 	}
 }
@@ -565,7 +556,6 @@ void CRedmineDownloaderDlg::GetIssue()
 		m_WorkerStatus.Format(_T("新規Issueの取得: %d/%d"), i, m_WorkerNew);
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 		GetIssue(id);
-		Sleep((DWORD)(m_TargetInterval * 1000));
 	}
 	i = 0;
 	for (auto id : m_UpdateIssue) {
@@ -573,7 +563,6 @@ void CRedmineDownloaderDlg::GetIssue()
 		m_WorkerStatus.Format(_T("更新されたIssueの取得: %d/%d"), i, m_WorkerUpdate);
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 		GetIssue(id);
-		Sleep((DWORD)(m_TargetInterval * 1000));
 	}
 }
 
@@ -596,7 +585,8 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 		web::http::http_response response = client.request(request, m_cts.get_token()).get();
 		// 成功したかチェック
 		if (response.status_code() != web::http::status_codes::OK) {
-			m_WorkerStatus.Format(_T("Failed to get issue: %d"), issueID);
+			m_WorkerStatus.Format(_T("Failed to get issue %d: %s"), issueID, (LPCTSTR)response.reason_phrase().c_str());
+			::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 			throw CWorkerError();
 		}
 
@@ -625,6 +615,8 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 		//utility::string_t wstr = jsonResponse.serialize();	// JSONをシリアル化 (UTF-16の文字列になる)
 		fwrite((WCHAR*)oss.str().c_str(), sizeof(char), oss.str().size(), pFile);	// JSONをファイルに保存
 		fclose(pFile);
+
+		Sleep((DWORD)(m_TargetInterval * 1000));
 
 		// 添付ファイルのダウンロード
 		auto& issue = jsonResponse[L"issue"];
@@ -661,7 +653,7 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 				if (fileResponse.status_code() != web::http::status_codes::OK) {
 					// 添付ファイルのダウンロードに失敗した場合はissue.jsonを削除して処理を中断する
 					DeleteFile(saveTo);
-					m_WorkerStatus.Format(_T("Issue %d: Failed to download attachment: %s"), issueID, (LPCTSTR)fileName);
+					m_WorkerStatus.Format(_T("Issue %d: Failed to download attachment: %s %s"), issueID, (LPCTSTR)fileName, (LPCTSTR)response.reason_phrase().c_str());
 					::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 					throw CWorkerError();
 				}
@@ -670,20 +662,20 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 				bodyStream.read_to_end(outStream.streambuf()).get();
 				outStream.close().get();
 
-				// すでに存在する履歴を調査する
-				CString historyPath;
-				for (int count = 1; ; count++) {
-					historyPath.Format(_T("%s\\%d\\%d.json"), (LPCTSTR)m_TargetFolder, issueID, count);
-					if (!PathFileExists(historyPath)) {
-						break;	// 履歴の保存先のファイルパスを構築して、存在しないファイルが見つかるまでループ
-					}
-				}
-				// 新履歴として保存する
-				CopyFile(saveTo, historyPath, FALSE);
-
 				Sleep((DWORD)(m_TargetInterval * 1000));
 			}
 		}
+
+		// すでに存在する履歴を調査する
+		CString historyPath;
+		for (int count = 1; ; count++) {
+			historyPath.Format(_T("%s\\%d\\%d.json"), (LPCTSTR)m_TargetFolder, issueID, count);
+			if (!PathFileExists(historyPath)) {
+				break;	// 履歴の保存先のファイルパスを構築して、存在しないファイルが見つかるまでループ
+			}
+		}
+		// 新履歴として保存する
+		CopyFile(saveTo, historyPath, FALSE);
 	}
 	catch (const web::http::http_exception e)
 	{

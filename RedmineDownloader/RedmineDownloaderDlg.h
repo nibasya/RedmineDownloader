@@ -49,7 +49,6 @@ public:
 	CEdit m_CtrlEditProjectId;
 	CEdit m_CtrlEditSaveTo;
 	CButton m_CtrlButtonSaveTo;
-	CEdit m_CtrlEditLimit;
 	CEdit m_CtrlEditInterval;
 	CEdit m_CtrlEditStatus;
 	CEdit m_CtrlEditTotal;
@@ -80,7 +79,6 @@ private:
 	CString m_TargetUrl;	// RedmineのURL
 	CString m_TargetApi;	// RedmineのAPIキー
 	CString m_TargetProjectId;	// 対象プロジェクトのID
-	int m_TargetLimit;		// 一度に取得するIssue数
 	double m_TargetInterval;	// 取得のインターバル（秒）
 	int m_WorkerNew;	// 新アイテム数
 	int m_WorkerUpdate;	// 更新アイテム数
@@ -98,6 +96,9 @@ private:
 	void GetIssue();		// 個別Issueを取得する。エラー時にCWorkerErrorを投げる。
 	void GetIssue(UINT issueID);		// 個別Issueを取得する。エラー時にCWorkerErrorを投げる。
 	CString PrepareLongPath(CString path);	// CString を受け取り、長いパス用に加工して返す関数
+	int GetPage(int count, int limit) {
+		return (count + limit - 1) / limit;
+	};
 
 
 };

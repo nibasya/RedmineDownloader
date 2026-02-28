@@ -15,7 +15,6 @@
 #define IDC_EDIT_SAVETO                 1004
 #define IDC_BUTTON_SAVETO               1005
 #define IDC_EDIT_STATUS                 1006
-#define IDC_EDIT_LIMIT                  1007
 #define IDC_EDIT_INTERVAL               1008
 #define IDC_EDIT_TOTAL                  1009
 #define IDC_EDIT_NEW                    1010
