@@ -50,6 +50,7 @@ public:
 	CEdit m_CtrlEditSaveTo;
 	CButton m_CtrlButtonSaveTo;
 	CEdit m_CtrlEditInterval;
+	CButton m_CtrlCheckSaveVersionHistory;
 	CEdit m_CtrlEditStatus;
 	CEdit m_CtrlEditTotal;
 	CEdit m_CtrlEditNew;
@@ -81,6 +82,7 @@ private:
 	CString m_TargetApi;	// RedmineのAPIキー
 	CString m_TargetProjectId;	// 対象プロジェクトのID
 	double m_TargetInterval;	// 取得のインターバル（秒）
+	bool m_TargetSaveVersionHistory;	// 履歴保存フラグ
 	int m_WorkerNew;	// 新アイテム数
 	int m_WorkerUpdate;	// 更新アイテム数
 
@@ -100,8 +102,6 @@ private:
 	int GetPage(int count, int limit) {
 		return (count + limit - 1) / limit;
 	};
-
-
 };
 
 // ワーカースレッドからCRedmineDownloaderDlgへの通知用メッセージ

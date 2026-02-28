@@ -24,7 +24,7 @@ const CString IssueFileName(_T("\\_issue.json"));
 // CRedmineDownloaderDlg ダイアログ
 
 CRedmineDownloaderDlg::CRedmineDownloaderDlg(CWnd* pParent /*=nullptr*/)
-    : CDialogEx(IDD_REDMINEDOWNLOADER_DIALOG, pParent), m_fStopThread(false), m_WorkerNew(0), m_WorkerUpdate(0), m_TargetInterval(0), m_fAutoExecute(false)
+    : CDialogEx(IDD_REDMINEDOWNLOADER_DIALOG, pParent), m_fStopThread(false), m_WorkerNew(0), m_WorkerUpdate(0), m_TargetInterval(0), m_fAutoExecute(false), m_TargetSaveVersionHistory(false)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -38,6 +38,7 @@ void CRedmineDownloaderDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_EDIT_SAVETO, m_CtrlEditSaveTo);
 	DDX_Control(pDX, IDC_BUTTON_SAVETO, m_CtrlButtonSaveTo);
 	DDX_Control(pDX, IDC_EDIT_INTERVAL, m_CtrlEditInterval);
+	DDX_Control(pDX, IDC_CHECK_SAVE_VERSION_HISTORY, m_CtrlCheckSaveVersionHistory);
 	DDX_Control(pDX, IDC_EDIT_STATUS, m_CtrlEditStatus);
 	DDX_Control(pDX, IDC_EDIT_TOTAL, m_CtrlEditTotal);
 	DDX_Control(pDX, IDC_EDIT_NEW, m_CtrlEditNew);
@@ -126,6 +127,7 @@ void CRedmineDownloaderDlg::LoadSettings()
 	m_CtrlEditProjectId.SetWindowText(theApp.GetProfileString(section, _T("ProjectId"), _T("")));
 	m_CtrlEditSaveTo.SetWindowText(theApp.GetProfileString(section, _T("SaveTo"), _T("")));
 	m_CtrlEditInterval.SetWindowText(theApp.GetProfileString(section, _T("Interval"), _T("0")));
+	m_CtrlCheckSaveVersionHistory.SetCheck(theApp.GetProfileInt(section, _T("SaveVersionHistory"), 0) ? BST_CHECKED : BST_UNCHECKED);
 }
 
 void CRedmineDownloaderDlg::SaveSettings()
@@ -142,6 +144,7 @@ void CRedmineDownloaderDlg::SaveSettings()
 	theApp.WriteProfileString(section, _T("SaveTo"), buff);
 	m_CtrlEditInterval.GetWindowText(buff);
 	theApp.WriteProfileString(section, _T("Interval"), buff);
+	theApp.WriteProfileInt(section, _T("SaveVersionHistory"), m_CtrlCheckSaveVersionHistory.GetCheck() == BST_CHECKED ? 1 : 0);
 }
 
 void CRedmineDownloaderDlg::EnableGui(bool fEnable)
@@ -577,6 +580,7 @@ void CRedmineDownloaderDlg::GetIssue()
 void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 {
 	CString origMsg = m_WorkerStatus;
+	CString saveTo;
 	try {
 		m_WorkerStatus.Format(_T("%s downloading issue: %d"), (LPCTSTR)origMsg, issueID);
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
@@ -609,7 +613,6 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 		
 		// IssueのJSONをファイルに保存
 		web::json::value jsonResponse = response.extract_json().get();
-		CString saveTo;
 		saveTo.Format(_T("%s\\%d%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)IssueFileName);	// 保存先のファイルパスを構築
 		FILE* pFile = NULL;
 		errno_t err = _wfopen_s(&pFile, saveTo, L"w");
@@ -674,19 +677,24 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 			}
 		}
 
-		// すでに存在する履歴を調査する
-		CString historyPath;
-		for (int count = 1; ; count++) {
-			historyPath.Format(_T("%s\\%d\\%d.json"), (LPCTSTR)m_TargetFolder, issueID, count);
-			if (!PathFileExists(historyPath)) {
-				break;	// 履歴の保存先のファイルパスを構築して、存在しないファイルが見つかるまでループ
+		if (m_TargetSaveVersionHistory) {
+			// すでに存在する履歴を調査する
+			CString historyPath;
+			for (int count = 1; ; count++) {
+				historyPath.Format(_T("%s\\%d\\%d.json"), (LPCTSTR)m_TargetFolder, issueID, count);
+				if (!PathFileExists(historyPath)) {
+					break;	// 履歴の保存先のファイルパスを構築して、存在しないファイルが見つかるまでループ
+				}
 			}
+			// 新履歴として保存する
+			CopyFile(saveTo, historyPath, FALSE);
 		}
-		// 新履歴として保存する
-		CopyFile(saveTo, historyPath, FALSE);
 	}
 	catch (const web::http::http_exception e)
 	{
+		if (saveTo.GetLength() > 0) {	// issue.jsonを保存した後にエラーが発生した場合は保存したissue.jsonを削除する
+			DeleteFile(saveTo);	// エラーが発生した場合は保存したissue.jsonを削除する
+		}
 		m_WorkerStatus = CString(CA2W(e.what(), CP_UTF8));
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 		throw CWorkerError();
