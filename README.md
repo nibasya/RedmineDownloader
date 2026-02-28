@@ -1,5 +1,6 @@
 # RedmineDownloader
 RedmineDownloader is a GUI tool designed to batch download and back up ticket information, attachments from Redmine.
+
 ![How it looks](screenshot.png)
 
 ## Features
