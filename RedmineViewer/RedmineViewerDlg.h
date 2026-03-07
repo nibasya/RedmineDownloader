@@ -49,5 +49,6 @@ public:
 	afx_msg void OnGetMinMaxInfo(MINMAXINFO* lpMMI);
 	afx_msg void OnDestroy();
 	afx_msg void OnDropFiles(HDROP hDropInfo);
+private:
 	bool LoadJson(const wchar_t* filePath);
 };

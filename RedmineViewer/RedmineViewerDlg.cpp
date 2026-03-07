@@ -9,7 +9,8 @@
 #include <wrl.h>
 #include <wil/com.h>
 #include <WebView2.h>
-
+#include <nlohmann/json.hpp>
+#include "inja.hpp"
 
 using namespace Microsoft::WRL;
 using namespace wil;
@@ -177,7 +178,7 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 						m_WebViewController->put_Bounds(bounds);
 
 						// 任意: 初期ページをロード
-						m_WebView->Navigate(L"https://www.google.com");
+						m_WebView->Navigate(L"file:///C:/Users/momo8/OneDrive/Documents/Git/RedmineDownloader/RedmineViewer/Redmine.html");
 					}
 
 					return S_OK;
@@ -317,5 +318,33 @@ void CRedmineViewerDlg::OnDropFiles(HDROP hDropInfo)
 
 bool CRedmineViewerDlg::LoadJson(const wchar_t* filePath)
 {
+	using namespace nlohmann;
+	using namespace inja;
 
+	// エンコード柔軟性のため、ファイルの読み込み・JSON解析・htmlレンダリングを分割して処理する。
+	json j;
+	try {
+		std::ifstream ifs(filePath);
+		if (!ifs.is_open()) {
+			MessageBox(L"Failed to open the file.", L"Error", MB_ICONERROR);
+			return false;
+		}
+		j.parse(ifs);
+	}
+	catch (const std::exception& e) {
+		MessageBox(CString(L"Failed to parse JSON: ") + CString(e.what()), L"Error", MB_ICONERROR);
+		return false;
+	}
+
+	// JSON データを HTML テンプレートに埋め込む
+	try {
+		// HTML テンプレートの例（実際には外部ファイルから読み込むこともできます）
+		inja::Environment env;
+		std::string renderedHtml = env.render_file(L"Redmine.html", j);
+		m_WebView->NavigateToString(CString(CA2W(renderedHtml.c_str(), CP_UTF8)));
+	}
+	catch (const std::exception& e) {
+		MessageBox(CString(L"Failed to render HTML: ") + CString(e.what()), L"Error", MB_ICONERROR);
+		return false;
+	}
 }
