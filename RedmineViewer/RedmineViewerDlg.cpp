@@ -6,10 +6,6 @@
 #include "RedmineViewer.h"
 #include "RedmineViewerDlg.h"
 #include "afxdialogex.h"
-#include <wrl.h>
-#include <wil/com.h>
-#include <WebView2.h>
-
 
 using namespace Microsoft::WRL;
 using namespace wil;
@@ -162,13 +158,6 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 					{
 						m_WebView = rawWebView; // wil::com_ptr に引き渡し
 
-						//// WebView の HWND を親ウィンドウにセット（既にコントローラが作成時に親設定されている場合もあります）
-						//HWND hWndWebView = nullptr;
-						//if (SUCCEEDED(m_WebViewController->get_Hwnd(&hWndWebView)) && hWndWebView != nullptr)
-						//{
-						//	::SetParent(hWndWebView, this->GetSafeHwnd());
-						//}
-
 						// ダイアログのクライアント領域に合わせて Bounds を設定
 						CRect rc;
 						m_CtrlWebView.GetWindowRect(&rc);
@@ -176,8 +165,14 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 						RECT bounds = { rc.left, rc.top, rc.right, rc.bottom };
 						m_WebViewController->put_Bounds(bounds);
 
-						// 任意: 初期ページをロード
-						m_WebView->Navigate(L"https://www.google.com");
+						// 初期ページをロード
+						TCHAR szPath[MAX_PATH];
+						std::basic_string<TCHAR> tgtPath(L"file:///");
+						GetCurrentDirectory(MAX_PATH, szPath);
+						tgtPath.append(szPath);
+						std::replace(tgtPath.begin(), tgtPath.end(),L'\\', L'/');
+						tgtPath.append(L"/Redmine.html");
+						m_WebView->Navigate(tgtPath.c_str());
 					}
 
 					return S_OK;
@@ -317,5 +312,34 @@ void CRedmineViewerDlg::OnDropFiles(HDROP hDropInfo)
 
 bool CRedmineViewerDlg::LoadJson(const wchar_t* filePath)
 {
+	using namespace nlohmann;
+	using namespace inja;
 
+	// エンコード柔軟性のため、ファイルの読み込み・JSON解析・htmlレンダリングを分割して処理する。
+	json j;
+	try {
+		std::ifstream ifs(filePath);
+		if (!ifs.is_open()) {
+			MessageBox(L"Failed to open the file.", L"Error", MB_ICONERROR);
+			return false;
+		}
+		j = json::parse(ifs);
+	}
+	catch (const std::exception& e) {
+		MessageBox(CString(L"Failed to parse JSON: ") + CString(e.what()), L"Error", MB_ICONERROR);
+		return false;
+	}
+
+	// JSON データを HTML テンプレートに埋め込む
+	try {
+		// HTML テンプレートの例（実際には外部ファイルから読み込むこともできます）
+		inja::Environment env;
+		std::string renderedHtml = env.render_file(L"Redmine.html", j);
+		m_WebView->NavigateToString(CString(CA2W(renderedHtml.c_str(), CP_UTF8)));
+	}
+	catch (const std::exception& e) {
+		MessageBox(CString(L"Failed to render HTML: ") + CString(e.what()), L"Error", MB_ICONERROR);
+		return false;
+	}
+	return true;
 }
