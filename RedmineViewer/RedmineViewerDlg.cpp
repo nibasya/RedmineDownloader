@@ -6,6 +6,7 @@
 #include "RedmineViewer.h"
 #include "RedmineViewerDlg.h"
 #include "afxdialogex.h"
+#include "CAboutDlg.h"
 
 using namespace Microsoft::WRL;
 using namespace wil;
@@ -13,39 +14,6 @@ using namespace wil;
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
-
-
-// アプリケーションのバージョン情報に使われる CAboutDlg ダイアログ
-
-class CAboutDlg : public CDialogEx
-{
-public:
-	CAboutDlg();
-
-// ダイアログ データ
-#ifdef AFX_DESIGN_TIME
-	enum { IDD = IDD_ABOUTBOX };
-#endif
-
-	protected:
-	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV サポート
-
-// 実装
-protected:
-	DECLARE_MESSAGE_MAP()
-};
-
-CAboutDlg::CAboutDlg() : CDialogEx(IDD_ABOUTBOX)
-{
-}
-
-void CAboutDlg::DoDataExchange(CDataExchange* pDX)
-{
-	CDialogEx::DoDataExchange(pDX);
-}
-
-BEGIN_MESSAGE_MAP(CAboutDlg, CDialogEx)
-END_MESSAGE_MAP()
 
 
 // CRedmineViewerDlg ダイアログ
@@ -113,6 +81,8 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 	SetIcon(m_hIcon, FALSE);		// 小さいアイコンの設定
 
 	// TODO: 初期化をここに追加します。
+	SetWindowText(CAboutDlg::GetAppVersion());	// バージョン情報の設定
+	
 	// 	// COM初期化
 	HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 	if (FAILED(hr)) {
@@ -334,6 +304,7 @@ bool CRedmineViewerDlg::LoadJson(const wchar_t* filePath)
 	try {
 		// HTML テンプレートの例（実際には外部ファイルから読み込むこともできます）
 		inja::Environment env;
+		env.set_html_autoescape(true); // HTML エスケープを有効にする
 		std::string renderedHtml = env.render_file(L"Redmine.html", j);
 		m_WebView->NavigateToString(CString(CA2W(renderedHtml.c_str(), CP_UTF8)));
 	}

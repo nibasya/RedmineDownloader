@@ -369,7 +369,7 @@ UINT __cdecl CRedmineDownloaderDlg::WorkerThread(LPVOID pParam)
 	catch (CWorkerError e) {
 		(void)e;	// remove C4101 unreferenced local variable warning
 	}
-	catch (std::exception e) {
+	catch (const std::exception &e) {
 		pDlg->m_WorkerStatus.Format(_T("エラー: %s"), (LPCTSTR)CString(e.what()));
 		::PostMessage(pDlg->m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0); // 完了したことをステータスに表示
 	}
@@ -611,8 +611,13 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 			throw CWorkerError();
 		}
 		
+		//OutputDebugString(body.c_str());
+		//auto json = web::json::value::parse(body);
+
 		// IssueのJSONをファイルに保存
-		web::json::value jsonResponse = response.extract_json().get();
+		auto body = response.extract_string().get();
+		auto cleaned = SanitizeForJson(body);	// 文字化け対策
+		web::json::value jsonResponse = web::json::value::parse(cleaned);
 		saveTo.Format(_T("%s\\%d%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)IssueFileName);	// 保存先のファイルパスを構築
 		FILE* pFile = NULL;
 		errno_t err = _wfopen_s(&pFile, saveTo, L"w");
@@ -745,4 +750,51 @@ CString CRedmineDownloaderDlg::PrepareLongPath(CString path) {
 	}
 
 	return longPath;
+}
+
+utility::string_t CRedmineDownloaderDlg::SanitizeForJson(const utility::string_t& in)
+{
+
+	utility::string_t out;
+	out.reserve(in.size());
+
+	for (auto ch : in)
+	{
+		// ここで ch は char または wchar_t（環境依存）
+		// JSONで禁止される制御文字（0x00～0x1F）を削除（ただし \t \n \r は残す選択も可）
+		// 今回は安全側に倒して \t \n \r 以外は除去する
+		const auto code = static_cast<uint32_t>(ch);
+
+		// 制御文字
+		if (code <= 0x1F) {
+			// JSONで許可される代表：タブ、LF、CR（必要なら残す）
+			if (code == 0x09 || code == 0x0A || code == 0x0D) {
+				out.push_back(ch);
+			}
+			// それ以外は除去
+			continue;
+		}
+
+		// DEL
+		if (code == 0x7F) {
+			continue;
+		}
+
+		// Unicode noncharacter を除去（U+FDD0..U+FDEF と、各面の U+FFFE/U+FFFF）
+		// ただし ch が wchar_t の場合のみ確実に比較できる。charの場合はUTF-8の途中バイトなので
+		// 「そのまま残す」方が安全だが、ここは簡易的に可能な範囲で除去する。
+		if ((code >= 0xFDD0 && code <= 0xFDEF) ||
+			(code & 0xFFFE) == 0xFFFE) {
+			continue;
+		}
+
+		// 置換文字 U+FFFD を除去（デコード失敗の典型）
+		if (code == 0xFFFD) {
+			continue;
+		}
+
+		out.push_back(ch);
+	}
+
+	return out;
 }

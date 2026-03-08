@@ -102,6 +102,7 @@ private:
 	int GetPage(int count, int limit) {
 		return (count + limit - 1) / limit;
 	};
+	utility::string_t SanitizeForJson(const utility::string_t& in);
 };
 
 // ワーカースレッドからCRedmineDownloaderDlgへの通知用メッセージ

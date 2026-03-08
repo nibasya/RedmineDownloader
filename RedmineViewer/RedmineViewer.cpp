@@ -69,7 +69,11 @@ BOOL CRedmineViewerApp::InitInstance()
 	// 設定が格納されているレジストリ キーを変更します。
 	// TODO: 会社名または組織名などの適切な文字列に
 	// この文字列を変更してください。
-	SetRegistryKey(_T("アプリケーション ウィザードで生成されたローカル アプリケーション"));
+	TCHAR path[_MAX_PATH + 1];
+	GetModuleFileName(NULL, path, _MAX_PATH);
+	PathRenameExtension(path, TEXT(".ini"));
+	free((void*)m_pszProfileName);
+	m_pszProfileName = _tcsdup(path);
 
 	CRedmineViewerDlg dlg;
 	m_pMainWnd = &dlg;
