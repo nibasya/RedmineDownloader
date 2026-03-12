@@ -360,6 +360,8 @@ UINT __cdecl CRedmineDownloaderDlg::WorkerThread(LPVOID pParam)
 	::PostMessage(pDlg->m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 
 	try {
+		pDlg->GetMemberships();
+		pDlg->GetStatuses();
 		pDlg->GetIssueList();
 		pDlg->UpdateLists();
 		pDlg->GetIssue();
@@ -376,6 +378,115 @@ UINT __cdecl CRedmineDownloaderDlg::WorkerThread(LPVOID pParam)
 
 	::PostMessage(pDlg->m_hWnd, WM_WORKER_STOPPED, 0, 0); // スレッド停止をメインスレッドに通知
 	return 0;
+}
+
+void CRedmineDownloaderDlg::DownloadFile(const CString& uri, web::http::http_response& response)
+{
+	// HTTPクライアントを作成
+	web::http::client::http_client client(utility::conversions::to_string_t((LPCTSTR)m_TargetUrl));
+	// HTTPリクエストを作成
+	web::http::http_request request(web::http::methods::GET);
+	request.headers().add(L"X-Redmine-API-Key", utility::conversions::to_string_t((LPCTSTR)m_TargetApi));
+	request.set_request_uri(utility::conversions::to_string_t((LPCTSTR)uri));
+	// リクエストを送信
+	response = client.request(request, m_cts.get_token()).get();
+	// 成功したかチェック
+	if (response.status_code() != web::http::status_codes::OK) {
+		m_WorkerStatus.Format(_T("Failed to get %s: %s"), (LPCTSTR)uri, (LPCTSTR)response.reason_phrase().c_str());
+		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
+		throw CWorkerError();
+	}
+}
+
+void CRedmineDownloaderDlg::DownloadJson(const CString& uri, web::json::value& jsonResponse)
+{
+	web::http::http_response response;
+	DownloadFile(uri, response);
+	auto body = response.extract_string().get();
+
+	// JSONのパース前に、禁止文字を除去しておく（Redmineのレスポンスに制御文字が混入することがあるため）
+	utility::string_t cleaned;
+	cleaned.reserve(body.size());
+
+	for (auto ch : body)
+	{
+		// ここで ch は char または wchar_t（環境依存）
+		// JSONで禁止される制御文字（0x00～0x1F）を削除（ただし \t \n \r は残す選択も可）
+		// 今回は安全側に倒して \t \n \r 以外は除去する
+		const auto code = static_cast<uint32_t>(ch);
+
+		// 制御文字
+		if (code <= 0x1F) {
+			// JSONで許可される代表：タブ、LF、CR（必要なら残す）
+			if (code == 0x09 || code == 0x0A || code == 0x0D) {
+				cleaned.push_back(ch);
+			}
+			// それ以外は除去
+			continue;
+		}
+
+		// DEL
+		if (code == 0x7F) {
+			continue;
+		}
+
+		// Unicode noncharacter を除去（U+FDD0..U+FDEF と、各面の U+FFFE/U+FFFF）
+		// ただし ch が wchar_t の場合のみ確実に比較できる。charの場合はUTF-8の途中バイトなので
+		// 「そのまま残す」方が安全だが、ここは簡易的に可能な範囲で除去する。
+		if ((code >= 0xFDD0 && code <= 0xFDEF) ||
+			(code & 0xFFFE) == 0xFFFE) {
+			continue;
+		}
+
+		// 置換文字 U+FFFD を除去（デコード失敗の典型）
+		if (code == 0xFFFD) {
+			continue;
+		}
+
+		cleaned.push_back(ch);
+	}
+
+	jsonResponse = web::json::value::parse(cleaned);
+}
+
+void CRedmineDownloaderDlg::SaveJson(const CString& saveTo, const web::json::value& jsonResponse, const CString& errorMessage)
+{
+	FILE* pFile = NULL;
+	errno_t err = _wfopen_s(&pFile, saveTo, L"w");
+	if (err != 0 || pFile == NULL) {
+		if (!errorMessage.IsEmpty()) {
+			m_WorkerStatus = errorMessage;
+			::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
+		}
+		else {
+			m_WorkerStatus.Format(_T("JSONの保存に失敗: %s"), (LPCWSTR)saveTo);
+			::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
+		}
+		throw CWorkerError();
+	}
+	std::ostringstream oss;
+	jsonResponse.serialize(oss);	// JSONをシリアル化 (UTF-8の文字列になる)
+	//utility::string_t wstr = jsonResponse.serialize();	// JSONをシリアル化 (UTF-16の文字列になる)
+	fwrite((WCHAR*)oss.str().c_str(), sizeof(char), oss.str().size(), pFile);	// JSONをファイルに保存
+	fclose(pFile);
+}
+
+void CRedmineDownloaderDlg::GetMemberships()
+{
+	web::json::value jsonResponse;
+	CString uri;
+	uri.Format(_T("/projects/%s/memberships.json"), (LPCTSTR)m_TargetProjectId);
+	DownloadJson(uri, jsonResponse);
+	SaveJson(m_TargetFolder + _T("\\memberships.json"), jsonResponse, _T("メンバー一覧の保存に失敗"));
+}
+
+void CRedmineDownloaderDlg::GetStatuses()
+{
+	web::json::value jsonResponse;
+	CString uri;
+	uri.Format(_T("/issue_statuses.json"), (LPCTSTR)m_TargetProjectId);
+	DownloadJson(uri, jsonResponse);
+	SaveJson(m_TargetFolder + _T("\\issue_statuses.json"), jsonResponse, _T("ステータス一覧の保存に失敗"));
 }
 
 void CRedmineDownloaderDlg::GetIssueList()
@@ -397,13 +508,14 @@ void CRedmineDownloaderDlg::GetIssueList()
 				m_WorkerStatus.Format(_T("Issue一覧の取得"));
 			}
 			else {
-				m_WorkerStatus.Format(_T("Issue一覧の取得 %d/%d"), GetPage(offset, limit), GetPage(totalCount, limit));
+				m_WorkerStatus.Format(_T("Issue一覧の取得 %d/%d"), GetPage(offset + 1, limit), GetPage(totalCount, limit));
 			}
 			::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 
 			// limitやtotalCountの更新、Issuesの取得
-			GetIssueListSub(limit, offset, response);
-			jsonResponse = response.extract_json().get();
+			CString uri;
+			uri.Format(L"/projects/%s/issues.json?status_id=*&limit=%d&offset=%d", (LPCWSTR)m_TargetProjectId, limit, offset);
+			DownloadJson(uri, jsonResponse);
 			limit = jsonResponse[L"limit"].as_integer();	// responseからlimitを抽出
 			totalCount = jsonResponse[L"total_count"].as_integer();	// responseからissue数を抽出
 			m_WorkerTotal.Format(_T("%d"), totalCount);
@@ -445,30 +557,6 @@ void CRedmineDownloaderDlg::GetIssueList()
 	}
 }
 
-void CRedmineDownloaderDlg::GetIssueListSub(int limit, int offset, web::http::http_response &response)
-{
-	// HTTPクライアントを作成
-	web::http::client::http_client client(utility::conversions::to_string_t((LPCTSTR)m_TargetUrl));
-
-	// リクエストURIを構築
-	std::wostringstream requestURI;
-	requestURI << L"/projects/" << (LPCTSTR)m_TargetProjectId << L"/issues.json?status_id=*&limit=" << limit << L"&offset=" << offset;
-
-	// HTTPリクエストを作成
-	web::http::http_request request(web::http::methods::GET);
-	request.headers().add(L"X-Redmine-API-Key", utility::conversions::to_string_t((LPCTSTR)m_TargetApi));
-	request.set_request_uri(requestURI.str());
-
-	// リクエストを送信
-	response = client.request(request, m_cts.get_token()).get();
-
-	// 成功したかチェック
-	if (response.status_code() != web::http::status_codes::OK) {
-		m_WorkerStatus.Format(_T("Failed to get issue lists: %s"), (LPCTSTR)response.reason_phrase().c_str());
-		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
-		throw CWorkerError();
-	}
-}
 
 void CRedmineDownloaderDlg::UpdateLists()
 {
@@ -580,27 +668,16 @@ void CRedmineDownloaderDlg::GetIssue()
 void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 {
 	CString origMsg = m_WorkerStatus;
-	CString saveTo;
+	CString issueSaveTo;
 	try {
 		m_WorkerStatus.Format(_T("%s downloading issue: %d"), (LPCTSTR)origMsg, issueID);
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
-		// Issueを取得する
-		web::http::client::http_client client(utility::conversions::to_string_t((LPCTSTR)m_TargetUrl));
-		// リクエストURIを構築
-		std::wostringstream requestURI;
-		requestURI << L"/issues/" << issueID << L".json?include=children,attachments,relations,changesets,journals,watchers";
-		// HTTPリクエストを作成
-		web::http::http_request request(web::http::methods::GET);
-		request.headers().add(L"X-Redmine-API-Key", utility::conversions::to_string_t((LPCTSTR)m_TargetApi));
-		request.set_request_uri(requestURI.str());
-		// リクエストを送信
-		web::http::http_response response = client.request(request, m_cts.get_token()).get();
-		// 成功したかチェック
-		if (response.status_code() != web::http::status_codes::OK) {
-			m_WorkerStatus.Format(_T("Failed to get issue %d: %s"), issueID, (LPCTSTR)response.reason_phrase().c_str());
-			::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
-			throw CWorkerError();
-		}
+
+		// IssueのJSONをダウンロード
+		web::json::value jsonResponse;
+		CString uri;
+		uri.Format(L"/issues/%d.json?include=children,attachments,relations,changesets,journals,watchers", issueID);
+		DownloadJson(uri, jsonResponse);
 
 		// Issueの保存先のフォルダを作成
 		CString issueFolder;
@@ -611,27 +688,11 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 			throw CWorkerError();
 		}
 		
-		//OutputDebugString(body.c_str());
-		//auto json = web::json::value::parse(body);
-
 		// IssueのJSONをファイルに保存
-		auto body = response.extract_string().get();
-		auto cleaned = SanitizeForJson(body);	// 文字化け対策
-		web::json::value jsonResponse = web::json::value::parse(cleaned);
-		saveTo.Format(_T("%s\\%d%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)IssueFileName);	// 保存先のファイルパスを構築
-		FILE* pFile = NULL;
-		errno_t err = _wfopen_s(&pFile, saveTo, L"w");
-		if (err != 0 || pFile == NULL) {
-			m_WorkerStatus.Format(_T("Failed to save issue: %d"), issueID);
-			::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
-			throw CWorkerError();
-		}
-		std::ostringstream oss;
-		jsonResponse.serialize(oss);	// JSONをシリアル化 (UTF-8の文字列になる)
-		//utility::string_t wstr = jsonResponse.serialize();	// JSONをシリアル化 (UTF-16の文字列になる)
-		fwrite((WCHAR*)oss.str().c_str(), sizeof(char), oss.str().size(), pFile);	// JSONをファイルに保存
-		fclose(pFile);
-
+		issueSaveTo.Format(_T("%s\\%d%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)IssueFileName);	// 保存先のファイルパスを構築
+		CString errorMessage;
+		errorMessage.Format(_T("Failed to save issue: %d"), issueID);
+		SaveJson(issueSaveTo, jsonResponse, errorMessage);
 		Sleep((DWORD)(m_TargetInterval * 1000));
 
 		// 添付ファイルのダウンロード
@@ -640,6 +701,7 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 			auto attachments = issue[L"attachments"].as_array();
 			for (auto& attachment : attachments) {
 				CString fileUrl = attachment[L"content_url"].as_string().c_str();	// 添付ファイルのURLを取得
+				CString fileUri = fileUrl.Mid(fileUrl.Find(L"/attachments/"));	// 添付ファイルのURIを取得
 				CString fileName = attachment[L"filename"].as_string().c_str();	// 添付ファイルの名前を取得
 				CString createdOn = attachment[L"created_on"].as_string().c_str();	// 添付ファイルの作成日時を取得
 				
@@ -662,17 +724,8 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 				::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 
 				// 添付ファイルをダウンロードして保存する
-				web::http::client::http_client fileClient(utility::conversions::to_string_t((LPCTSTR)fileUrl));
-				web::http::http_request fileRequest(web::http::methods::GET);
-				fileRequest.headers().add(L"X-Redmine-API-Key", utility::conversions::to_string_t((LPCTSTR)m_TargetApi));
-				web::http::http_response fileResponse = fileClient.request(fileRequest, m_cts.get_token()).get();
-				if (fileResponse.status_code() != web::http::status_codes::OK) {
-					// 添付ファイルのダウンロードに失敗した場合はissue.jsonを削除して処理を中断する
-					DeleteFile(saveTo);
-					m_WorkerStatus.Format(_T("Issue %d: Failed to download attachment: %s %s"), issueID, (LPCTSTR)fileName, (LPCTSTR)response.reason_phrase().c_str());
-					::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
-					throw CWorkerError();
-				}
+				web::http::http_response fileResponse;
+				DownloadFile(fileUri, fileResponse);
 				auto bodyStream = fileResponse.body();
 				auto outStream = concurrency::streams::fstream::open_ostream(utility::conversions::to_string_t((LPCTSTR)savePath)).get();
 				bodyStream.read_to_end(outStream.streambuf()).get();
@@ -692,17 +745,23 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 				}
 			}
 			// 新履歴として保存する
-			CopyFile(saveTo, historyPath, FALSE);
+			CopyFile(issueSaveTo, historyPath, FALSE);
 		}
 	}
 	catch (const web::http::http_exception e)
 	{
-		if (saveTo.GetLength() > 0) {	// issue.jsonを保存した後にエラーが発生した場合は保存したissue.jsonを削除する
-			DeleteFile(saveTo);	// エラーが発生した場合は保存したissue.jsonを削除する
+		if (issueSaveTo.GetLength() > 0) {
+			DeleteFile(issueSaveTo);	// エラーが発生した場合は保存したissue.jsonを削除する
 		}
 		m_WorkerStatus = CString(CA2W(e.what(), CP_UTF8));
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 		throw CWorkerError();
+	}
+	catch (const CWorkerError e) {
+		if (issueSaveTo.GetLength() > 0) {
+			DeleteFile(issueSaveTo);	// エラーが発生した場合は保存したissue.jsonを削除する
+		}
+		throw e;
 	}
 }
 
@@ -750,51 +809,4 @@ CString CRedmineDownloaderDlg::PrepareLongPath(CString path) {
 	}
 
 	return longPath;
-}
-
-utility::string_t CRedmineDownloaderDlg::SanitizeForJson(const utility::string_t& in)
-{
-
-	utility::string_t out;
-	out.reserve(in.size());
-
-	for (auto ch : in)
-	{
-		// ここで ch は char または wchar_t（環境依存）
-		// JSONで禁止される制御文字（0x00～0x1F）を削除（ただし \t \n \r は残す選択も可）
-		// 今回は安全側に倒して \t \n \r 以外は除去する
-		const auto code = static_cast<uint32_t>(ch);
-
-		// 制御文字
-		if (code <= 0x1F) {
-			// JSONで許可される代表：タブ、LF、CR（必要なら残す）
-			if (code == 0x09 || code == 0x0A || code == 0x0D) {
-				out.push_back(ch);
-			}
-			// それ以外は除去
-			continue;
-		}
-
-		// DEL
-		if (code == 0x7F) {
-			continue;
-		}
-
-		// Unicode noncharacter を除去（U+FDD0..U+FDEF と、各面の U+FFFE/U+FFFF）
-		// ただし ch が wchar_t の場合のみ確実に比較できる。charの場合はUTF-8の途中バイトなので
-		// 「そのまま残す」方が安全だが、ここは簡易的に可能な範囲で除去する。
-		if ((code >= 0xFDD0 && code <= 0xFDEF) ||
-			(code & 0xFFFE) == 0xFFFE) {
-			continue;
-		}
-
-		// 置換文字 U+FFFD を除去（デコード失敗の典型）
-		if (code == 0xFFFD) {
-			continue;
-		}
-
-		out.push_back(ch);
-	}
-
-	return out;
 }

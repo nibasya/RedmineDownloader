@@ -64,7 +64,7 @@
 
         <div style="border-top: 1px solid #ddd; margin-top: 15px; padding-top: 5px;">
             <p style="font-weight: bold; margin-bottom: 5px;">説明</p>
-            <p style="margin-left: 10px;">{{ issue.description }}</p>
+            <div style="white-space: pre-wrap;"><p style="margin-left: 10px;">{{ issue.description}}</p></div>
         </div>
 
 		TODO: 添付ファイルの表示</br>
@@ -106,7 +106,7 @@
                 <li>{{ detail.name }} を <i>{{ detail.old_value }}</i> から <b>{{ detail.new_value }}</b> に変更</li>
 ## endfor
             </ul>
-            <p style="margin-top: 10px; font-size: 13px;">{{ journal.notes }}</p>
+            <p style="margin-top: 10px; font-size: 13px;"><div style="white-space: pre-wrap;">{{ journal.notes }}</div></p>
         </div>
 ## endfor
     </div>

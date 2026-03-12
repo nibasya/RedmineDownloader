@@ -121,12 +121,17 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 
 					// COM ポインタを保持
 					m_WebViewController = controller;
-
 					// コントローラから ICoreWebView2 を取得
 					ICoreWebView2* rawWebView = nullptr;
 					if (SUCCEEDED(m_WebViewController->get_CoreWebView2(&rawWebView)) && rawWebView != nullptr)
 					{
 						m_WebView = rawWebView; // wil::com_ptr に引き渡し
+
+						// ファイルのD&Dを禁止する
+						wil::com_ptr<ICoreWebView2Controller4> controller4 = m_WebViewController.try_query<ICoreWebView2Controller4>();
+						if (controller4) {
+							controller4->put_AllowExternalDrop(FALSE);
+						}
 
 						// ダイアログのクライアント領域に合わせて Bounds を設定
 						CRect rc;
@@ -141,7 +146,7 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 						GetCurrentDirectory(MAX_PATH, szPath);
 						tgtPath.append(szPath);
 						std::replace(tgtPath.begin(), tgtPath.end(),L'\\', L'/');
-						tgtPath.append(L"/Redmine.html");
+						tgtPath.append(L"/Issue.html");
 						m_WebView->Navigate(tgtPath.c_str());
 					}
 
@@ -302,10 +307,10 @@ bool CRedmineViewerDlg::LoadJson(const wchar_t* filePath)
 
 	// JSON データを HTML テンプレートに埋め込む
 	try {
-		// HTML テンプレートの例（実際には外部ファイルから読み込むこともできます）
 		inja::Environment env;
 		env.set_html_autoescape(true); // HTML エスケープを有効にする
-		std::string renderedHtml = env.render_file(L"Redmine.html", j);
+
+		std::string renderedHtml = env.render_file(L"Issue.html", j);
 		m_WebView->NavigateToString(CString(CA2W(renderedHtml.c_str(), CP_UTF8)));
 	}
 	catch (const std::exception& e) {

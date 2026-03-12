@@ -92,8 +92,12 @@ private:
 
 	// ワーカースレッドの関数
 	static UINT __cdecl WorkerThread(LPVOID pParam);	// ワーカースレッド
+	void DownloadFile(const CString& uri, web::http::http_response& response);	// ファイルのダウンロード。エラー時にCWorkerErrorを投げる。
+	void DownloadJson(const CString& uri, web::json::value& jsonResponse);	// JSONのダウンロードと文字化け除去。エラー時にCWorkerErrorを投げる。
+	void SaveJson(const CString& saveTo, const web::json::value& jsonResponse, const CString& errorMessage=CString(L""));	// JSONの保存。エラー時にCWorkerErrorを投げる。
+	void GetMemberships();	// メンバー一覧の取得。エラー時にCWorkerErrorを投げる。
+	void GetStatuses();	// ステータス一覧の取得。エラー時にCWorkerErrorを投げる。
 	void GetIssueList();	// Issue一覧の取得。エラー時にCWorkerErrorを投げる。
-	void GetIssueListSub(int limit, int offset, web::http::http_response& response);
 	void UpdateLists();		// json内のデータからnew issueやupdated issueを取り出す。エラー時にCWorkerErrorを投げる。
 	void LoadJson(web::json::value& jsonResponse, const CString& json);	// jsonを読み込む。
 	void GetIssue();		// 個別Issueを取得する。エラー時にCWorkerErrorを投げる。
@@ -102,7 +106,6 @@ private:
 	int GetPage(int count, int limit) {
 		return (count + limit - 1) / limit;
 	};
-	utility::string_t SanitizeForJson(const utility::string_t& in);
 };
 
 // ワーカースレッドからCRedmineDownloaderDlgへの通知用メッセージ
