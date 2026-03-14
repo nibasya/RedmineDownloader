@@ -1,4 +1,4 @@
-﻿// CAboutDlg.cpp : 実装ファイル
+// CAboutDlg.cpp : 実装ファイル
 //
 
 #include "pch.h"

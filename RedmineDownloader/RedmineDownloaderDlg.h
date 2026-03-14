@@ -5,7 +5,6 @@
 #pragma once
 
 #include <list>
-#include <cpprest/http_client.h>
 
 // CRedmineDownloaderDlg ダイアログ
 class CRedmineDownloaderDlg : public CDialogEx
@@ -92,11 +91,33 @@ private:
 
 	// ワーカースレッドの関数
 	static UINT __cdecl WorkerThread(LPVOID pParam);	// ワーカースレッド
-	void DownloadFile(const CString& uri, web::http::http_response& response);	// ファイルのダウンロード。エラー時にCWorkerErrorを投げる。
-	void DownloadJson(const CString& uri, web::json::value& jsonResponse);	// JSONのダウンロードと文字化け除去。エラー時にCWorkerErrorを投げる。
+
+	///	<summary>Downloads file and store the http_response.</summary>
+	/// <param name="uri"></param>
+ 	/// <param name="response"></param>
+	/// <param name="issueNo">Related issue number. If no relationship, set -1.</param>
+	/// <exception cref="CWorkerError">thrown on web error</exception>
+	void DownloadFile(const CString& uri, web::http::http_response& response, const int issueNo);
+
+	///	<summary>Downloads JSON, remove invalid characters and store json object.</summary>
+	/// <param name="uri"></param>
+	/// <param name="response"></param>
+	/// <param name="issueNo">Related issue number. If no relationship, set -1.</param>
+	/// <exception cref="CWorkerError">thrown on web error</exception>
+	void DownloadJson(const CString& uri, web::json::value& jsonResponse, const int issueNo);
+
+	/// <summary>Downloads JSON splitted in multi pages.</summary>
+	/// <param name="uri"></param>
+	/// <param name="jsonResponse"></param>
+	/// <param name="key">key of the item to be merged into one array</param>
+	/// <param name="option">option to be added to uri</param>
+	void DownloadMultiPageJson(const CString& uri, web::json::value& jsonResponse, const utility::string_t key, const CString& option=L"");
+
 	void SaveJson(const CString& saveTo, const web::json::value& jsonResponse, const CString& errorMessage=CString(L""));	// JSONの保存。エラー時にCWorkerErrorを投げる。
 	void GetMemberships();	// メンバー一覧の取得。エラー時にCWorkerErrorを投げる。
 	void GetStatuses();	// ステータス一覧の取得。エラー時にCWorkerErrorを投げる。
+	void GetTrackers();	// トラッカー一覧の取得。エラー時にCWorkerErrorを投げる。
+	void GetPriorities(); // 優先度一覧の取得。エラー時にCWorkerErrorを投げる。
 	void GetIssueList();	// Issue一覧の取得。エラー時にCWorkerErrorを投げる。
 	void UpdateLists();		// json内のデータからnew issueやupdated issueを取り出す。エラー時にCWorkerErrorを投げる。
 	void LoadJson(web::json::value& jsonResponse, const CString& json);	// jsonを読み込む。

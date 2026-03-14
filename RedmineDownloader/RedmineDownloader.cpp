@@ -1,4 +1,4 @@
-﻿
+
 // RedmineDownloader.cpp : アプリケーションのクラス動作を定義します。
 //
 

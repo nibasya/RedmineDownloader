@@ -7,8 +7,6 @@
 #include "RedmineDownloaderDlg.h"
 #include "afxdialogex.h"
 #include "CAboutDlg.h"
-#include <cpprest/json.h>
-#include <cpprest/filestream.h>
 #include <string>
 #include <sstream>
 #include "rptt.h"
@@ -362,6 +360,8 @@ UINT __cdecl CRedmineDownloaderDlg::WorkerThread(LPVOID pParam)
 	try {
 		pDlg->GetMemberships();
 		pDlg->GetStatuses();
+		pDlg->GetTrackers();
+		pDlg->GetPriorities();
 		pDlg->GetIssueList();
 		pDlg->UpdateLists();
 		pDlg->GetIssue();
@@ -380,8 +380,10 @@ UINT __cdecl CRedmineDownloaderDlg::WorkerThread(LPVOID pParam)
 	return 0;
 }
 
-void CRedmineDownloaderDlg::DownloadFile(const CString& uri, web::http::http_response& response)
+void CRedmineDownloaderDlg::DownloadFile(const CString& uri, web::http::http_response& response, const int issueNo)
 {
+	_RPTTN(_T("downloading %s\n"), uri);
+
 	// HTTPクライアントを作成
 	web::http::client::http_client client(utility::conversions::to_string_t((LPCTSTR)m_TargetUrl));
 	// HTTPリクエストを作成
@@ -392,16 +394,22 @@ void CRedmineDownloaderDlg::DownloadFile(const CString& uri, web::http::http_res
 	response = client.request(request, m_cts.get_token()).get();
 	// 成功したかチェック
 	if (response.status_code() != web::http::status_codes::OK) {
-		m_WorkerStatus.Format(_T("Failed to get %s: %s"), (LPCTSTR)uri, (LPCTSTR)response.reason_phrase().c_str());
+		if (issueNo < 0) {
+			m_WorkerStatus.Format(_T("Failed to get %s: %s"), (LPCTSTR)uri, (LPCTSTR)response.reason_phrase().c_str());
+		}
+		else {
+			m_WorkerStatus.Format(_T("Issue %d: Failed to get %s: %s"), issueNo, (LPCTSTR)uri, (LPCTSTR)response.reason_phrase().c_str());
+		}
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 		throw CWorkerError();
 	}
+	Sleep((DWORD)(m_TargetInterval * 1000));
 }
 
-void CRedmineDownloaderDlg::DownloadJson(const CString& uri, web::json::value& jsonResponse)
+void CRedmineDownloaderDlg::DownloadJson(const CString& uri, web::json::value& jsonResponse, const int issueNo)
 {
 	web::http::http_response response;
-	DownloadFile(uri, response);
+	DownloadFile(uri, response, issueNo);
 	auto body = response.extract_string().get();
 
 	// JSONのパース前に、禁止文字を除去しておく（Redmineのレスポンスに制御文字が混入することがあるため）
@@ -449,6 +457,49 @@ void CRedmineDownloaderDlg::DownloadJson(const CString& uri, web::json::value& j
 	jsonResponse = web::json::value::parse(cleaned);
 }
 
+void CRedmineDownloaderDlg::DownloadMultiPageJson(const CString& uri, web::json::value& jsonResponse, const utility::string_t key, const CString &option)
+{
+	const int initialValue = 10000000;
+	int limit = initialValue;
+	int totalCount = initialValue;
+	CString defStatus = m_WorkerStatus;
+	web::json::value integratedArray;
+	web::json::value response;
+	for (int offset = 0; offset < totalCount; offset += limit) {	// totalCount, limitは1ページ目のresponseから取得した値を使用
+		// Update status message
+		if (limit == initialValue) {
+			// no status change;
+		}
+		else {
+			m_WorkerStatus.Format(_T("%s %d/%d"), (LPCWSTR)defStatus, GetPage(offset + 1, limit), GetPage(totalCount, limit));
+		}
+		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
+
+		// limitやtotalCountの更新、ページ内容の取得
+		CString completeUri;
+		completeUri.Format(L"%s?&limit=%d&offset=%d%s", (LPCWSTR)uri, limit, offset, (LPCWSTR)option);
+		DownloadJson(completeUri, response, -1);
+		if (response.has_field(L"limit")) {
+			limit = response[L"limit"].as_integer();	// responseからlimitを抽出
+		}
+		if (response.has_field(L"total_count")) {
+			totalCount = response[L"total_count"].as_integer();	// responseからアイテム数を抽出
+		}
+
+		// extract target item
+		auto targets = response[key];
+		for (const auto& target : targets.as_array()) {
+			integratedArray[integratedArray.size()] = target;	// 取得したtargetをIntegratedArray末尾に追加
+		}
+	}
+	// integrate downloaded array into the latest downloaded json
+	jsonResponse = response;
+	jsonResponse[key] = integratedArray;
+	if(jsonResponse.has_field(L"offset")) {
+		jsonResponse[L"offset"] = web::json::value::number(0);	// 全データを含んでいるためoffsetを0にセット
+	}
+}
+
 void CRedmineDownloaderDlg::SaveJson(const CString& saveTo, const web::json::value& jsonResponse, const CString& errorMessage)
 {
 	FILE* pFile = NULL;
@@ -473,66 +524,74 @@ void CRedmineDownloaderDlg::SaveJson(const CString& saveTo, const web::json::val
 
 void CRedmineDownloaderDlg::GetMemberships()
 {
+	m_WorkerStatus = _T("メンバー一覧のダウンロード");
+	::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
+
 	web::json::value jsonResponse;
 	CString uri;
 	uri.Format(_T("/projects/%s/memberships.json"), (LPCTSTR)m_TargetProjectId);
-	DownloadJson(uri, jsonResponse);
+	DownloadMultiPageJson(uri, jsonResponse, L"memberships");
 	SaveJson(m_TargetFolder + _T("\\memberships.json"), jsonResponse, _T("メンバー一覧の保存に失敗"));
 }
 
 void CRedmineDownloaderDlg::GetStatuses()
 {
+	m_WorkerStatus = _T("ステータス一覧のダウンロード");
+	::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
+
 	web::json::value jsonResponse;
 	CString uri;
-	uri.Format(_T("/issue_statuses.json"), (LPCTSTR)m_TargetProjectId);
-	DownloadJson(uri, jsonResponse);
+	uri.Format(_T("/issue_statuses.json"));
+	DownloadMultiPageJson(uri, jsonResponse, L"issue_statuses");
 	SaveJson(m_TargetFolder + _T("\\issue_statuses.json"), jsonResponse, _T("ステータス一覧の保存に失敗"));
+}
+
+void CRedmineDownloaderDlg::GetTrackers()
+{
+	m_WorkerStatus = _T("トラッカー一覧のダウンロード");
+	::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
+
+	web::json::value jsonResponse;
+	CString uri;
+	uri.Format(_T("/trackers.json"));
+	DownloadMultiPageJson(uri, jsonResponse, L"trackers");
+	SaveJson(m_TargetFolder + _T("\\trackers.json"), jsonResponse, _T("トラッカー一覧の保存に失敗"));
+}
+
+void CRedmineDownloaderDlg::GetPriorities()
+{
+	m_WorkerStatus = _T("優先度一覧のダウンロード");
+	::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
+
+	web::json::value jsonResponse;
+	CString uri;
+	uri.Format(_T("/enumerations/issue_priorities.json"));
+	DownloadMultiPageJson(uri, jsonResponse, L"issue_priorities");
+	SaveJson(m_TargetFolder + _T("\\issue_priorities.json"), jsonResponse, _T("優先度一覧の保存に失敗"));
 }
 
 void CRedmineDownloaderDlg::GetIssueList()
 {
 	try
 	{
-		web::http::http_response response;
-		web::json::value jsonResponse;
 		web::json::value issueListJson;
-		web::json::value issueListArray = web::json::value::array();
 
 		const int initialValue = 10000000;
 		int limit = initialValue;
 		int totalCount = initialValue;
 
 		// Issue Listを取得する
-		for (int offset = 0; offset < totalCount; offset += limit) {	// totalCount, limitは1ページ目のresponseから取得した値を使用
-			if (limit == initialValue) {
-				m_WorkerStatus.Format(_T("Issue一覧の取得"));
-			}
-			else {
-				m_WorkerStatus.Format(_T("Issue一覧の取得 %d/%d"), GetPage(offset + 1, limit), GetPage(totalCount, limit));
-			}
-			::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
+		m_WorkerStatus.Format(_T("Issue一覧の取得"));	// postはDownloadMultiPageJson()が実施
+		CString uri;
+		uri.Format(L"/projects/%s/issues.json", (LPCWSTR)m_TargetProjectId);
+		DownloadMultiPageJson(uri, issueListJson, L"issues", L"&status_id=*");
+		totalCount = (int)issueListJson[L"issues"].size();	// responseからissue数を抽出
+		m_WorkerTotal.Format(_T("%d"), totalCount);
+		::PostMessageW(m_hWnd, WM_WORKER_UPDATE_TOTAL, 0, 0);
 
-			// limitやtotalCountの更新、Issuesの取得
-			CString uri;
-			uri.Format(L"/projects/%s/issues.json?status_id=*&limit=%d&offset=%d", (LPCWSTR)m_TargetProjectId, limit, offset);
-			DownloadJson(uri, jsonResponse);
-			limit = jsonResponse[L"limit"].as_integer();	// responseからlimitを抽出
-			totalCount = jsonResponse[L"total_count"].as_integer();	// responseからissue数を抽出
-			m_WorkerTotal.Format(_T("%d"), totalCount);
-			::PostMessageW(m_hWnd, WM_WORKER_UPDATE_TOTAL, 0, 0);
-			auto issues = jsonResponse[L"issues"];
-			for (const auto& issue : issues.as_array()) {
-				issueListArray[issueListArray.size()] = issue;	// 取得したIssueをissueListArray末尾に追加
-			}
-			Sleep((DWORD)(m_TargetInterval * 1000));
-		}
-
+		// Issue Listを保存する
 		m_WorkerStatus = _T("Issue一覧の保存");
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
-
-		issueListJson = jsonResponse;
-		issueListJson[L"issues"] = issueListArray;	// まとめたIssue ListをissueListJsonにセット
-		issueListJson[L"offset"] = web::json::value::number(0);	// offsetを0にセット
 		CString saveTo(m_TargetFolder + IssueListFileName);	// 保存先のファイルパスを構築
 		FILE* pFile = NULL;
 		errno_t err = _wfopen_s(&pFile, saveTo, L"w");
@@ -677,7 +736,7 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 		web::json::value jsonResponse;
 		CString uri;
 		uri.Format(L"/issues/%d.json?include=children,attachments,relations,changesets,journals,watchers", issueID);
-		DownloadJson(uri, jsonResponse);
+		DownloadJson(uri, jsonResponse, issueID);
 
 		// Issueの保存先のフォルダを作成
 		CString issueFolder;
@@ -693,7 +752,6 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 		CString errorMessage;
 		errorMessage.Format(_T("Failed to save issue: %d"), issueID);
 		SaveJson(issueSaveTo, jsonResponse, errorMessage);
-		Sleep((DWORD)(m_TargetInterval * 1000));
 
 		// 添付ファイルのダウンロード
 		auto& issue = jsonResponse[L"issue"];
@@ -725,13 +783,11 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 
 				// 添付ファイルをダウンロードして保存する
 				web::http::http_response fileResponse;
-				DownloadFile(fileUri, fileResponse);
+				DownloadFile(fileUri, fileResponse, issueID);
 				auto bodyStream = fileResponse.body();
 				auto outStream = concurrency::streams::fstream::open_ostream(utility::conversions::to_string_t((LPCTSTR)savePath)).get();
 				bodyStream.read_to_end(outStream.streambuf()).get();
 				outStream.close().get();
-
-				Sleep((DWORD)(m_TargetInterval * 1000));
 			}
 		}
 

@@ -10,4 +10,13 @@
 // プリコンパイルするヘッダーをここに追加します  
 #include "framework.h"  
 
+#if defined(_MSC_VER) && (_MSC_VER < 1950)
+	#pragma warning(push)
+	#pragma warning(disable:4996)
+	#include <cpprest/json.h>
+	#include <cpprest/filestream.h>
+	#include <cpprest/http_client.h>
+	#pragma warning(pop)
+#endif // _MSC_VER < 1950
+
 #endif //PCH_H
