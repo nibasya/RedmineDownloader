@@ -1,4 +1,4 @@
-﻿// RedmineViewerDlg.cpp : 実装ファイル
+// RedmineViewerDlg.cpp : 実装ファイル
 //
 
 #include "pch.h"
@@ -473,86 +473,93 @@ std::string UtcToLocal(std::string in, LPSYSTEMTIME pLocal)
 
 void CRedmineViewerDlg::SetupCallbacks()
 {
-	m_Env.add_callback("UtcToLocal", 1, [](inja::Arguments args) {
-		std::string in = args.at(0)->get<std::string>();
-		SYSTEMTIME local;
-		std::string err;
-		err = UtcToLocal(in, &local);
-		if (!err.empty()) {
-			return err;
-		}
-		CStringA out;
-		out.Format("%04d/%02d/%02d %02d:%02d:%02d", local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute, local.wSecond);
-		return std::string((LPCSTR)out);
+	m_Env.add_callback("UtcToLocal", 1, CallbackUtcToLocal);
 
-		//std::ostringstream out;
-		//out << local.wYear << "/" << local.wMonth << "/" << local.wDay << " " << local.wHour << ":" << local.wMinute << ":" << local.wSecond;
-		//return out.str();
-		});
+	m_Env.add_callback("UtcToAgo", 1, CallbackUtcToAgo);
 
-	m_Env.add_callback("UtcToAgo", 1, [](inja::Arguments args) {
-		std::string in = args.at(0)->get<std::string>();
-		SYSTEMTIME local;
-		std::string err;
-		err = UtcToLocal(in, &local);
-		if (!err.empty()) {
-			return err;
-		}
-		std::ostringstream oss;
-		CTimeSpan ts =  CTime::GetCurrentTime() - CTime(local);
-		if (ts.GetDays() / 365 > 1) {
-			oss << "over " << ts.GetDays() / 365 << " years";
-		}
-		else if (ts.GetDays() > 365) {
-			oss << "1 year";
-		}
-		else if (ts.GetDays() / 30 > 1) {
-			oss << ts.GetDays() / 30 << " months";
-		}
-		else if (ts.GetDays() > 30) {
-			oss << "1 month";
-		}
-		else if (ts.GetDays() > 1) {
-			oss << ts.GetDays() << " days";
-		}
-		else if (ts.GetDays() > 1) {
-			oss << "1 day";
-		}
-		else if (ts.GetHours() > 1) {
-			oss << ts.GetHours() << " hours";
-		}
-		else if (ts.GetHours() > 0) {
-			oss << "1 hour";
-		}
-		else if (ts.GetMinutes() > 1) {
-			oss << ts.GetMinutes() << " minutes";
-		}
-		else if (ts.GetMinutes() > 0) {
-			oss << "1 minute";
-		}
-		else if (ts.GetSeconds() > 1) {
-			oss << ts.GetSeconds() << " seconds";
-		}
-		else {
-			oss << ts.GetSeconds() << " second";
-		}
-		return oss.str();
-		});
+	m_Env.add_callback("UtcToYMD", 1, CallbackUtcToYMD);
+}
 
-	m_Env.add_callback("UtcToYMD", 1, [](inja::Arguments args) {
-		std::string in = args.at(0)->get<std::string>();
-		SYSTEMTIME local;
-		std::string err;
-		err = UtcToLocal(in, &local);
-		if (!err.empty()) {
-			return err;
-		}
-		CStringA out;
-		out.Format("%04d/%02d/%02d", local.wYear, local.wMonth, local.wDay);
-		return std::string((LPCSTR)out);
-//		std::ostringstream out;
-//		out << local.wYear << "/" << local.wMonth << "/" << local.wDay << " ";
-//		return out.str();
-		});
+inja::json CallbackUtcToLocal(inja::Arguments& args)
+{
+	std::string in = args.at(0)->get<std::string>();
+	SYSTEMTIME local;
+	std::string err;
+	err = UtcToLocal(in, &local);
+	if (!err.empty()) {
+		return err;
+	}
+	CStringA out;
+	out.Format("%04d/%02d/%02d %02d:%02d:%02d", local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute, local.wSecond);
+	return std::string((LPCSTR)out);
+
+	//std::ostringstream out;
+	//out << local.wYear << "/" << local.wMonth << "/" << local.wDay << " " << local.wHour << ":" << local.wMinute << ":" << local.wSecond;
+	//return out.str();
+//	return inja::json();
+}
+
+inja::json CallbackUtcToAgo(inja::Arguments& args)
+{
+	std::string in = args.at(0)->get<std::string>();
+	SYSTEMTIME local;
+	std::string err;
+	err = UtcToLocal(in, &local);
+	if (!err.empty()) {
+		return err;
+	}
+	std::ostringstream oss;
+	CTimeSpan ts = CTime::GetCurrentTime() - CTime(local);
+	if (ts.GetDays() / 365 > 1) {
+		oss << "over " << ts.GetDays() / 365 << " years";
+	}
+	else if (ts.GetDays() > 365) {
+		oss << "1 year";
+	}
+	else if (ts.GetDays() / 30 > 1) {
+		oss << ts.GetDays() / 30 << " months";
+	}
+	else if (ts.GetDays() > 30) {
+		oss << "1 month";
+	}
+	else if (ts.GetDays() > 1) {
+		oss << ts.GetDays() << " days";
+	}
+	else if (ts.GetDays() > 1) {
+		oss << "1 day";
+	}
+	else if (ts.GetHours() > 1) {
+		oss << ts.GetHours() << " hours";
+	}
+	else if (ts.GetHours() > 0) {
+		oss << "1 hour";
+	}
+	else if (ts.GetMinutes() > 1) {
+		oss << ts.GetMinutes() << " minutes";
+	}
+	else if (ts.GetMinutes() > 0) {
+		oss << "1 minute";
+	}
+	else if (ts.GetSeconds() > 1) {
+		oss << ts.GetSeconds() << " seconds";
+	}
+	else {
+		oss << ts.GetSeconds() << " second";
+	}
+	return oss.str();
+}
+
+inja::json CallbackUtcToYMD(inja::Arguments& args)
+{
+	std::string in = args.at(0)->get<std::string>();
+	SYSTEMTIME local;
+	std::string err;
+	err = UtcToLocal(in, &local);
+	if (!err.empty()) {
+		return err;
+	}
+	CStringA out;
+	out.Format("%04d/%02d/%02d", local.wYear, local.wMonth, local.wDay);
+	return std::string((LPCSTR)out);
 }
 

@@ -1,4 +1,4 @@
-﻿
+
 // RedmineViewerDlg.h : ヘッダー ファイル
 //
 
@@ -49,6 +49,7 @@ public:
 	afx_msg void OnGetMinMaxInfo(MINMAXINFO* lpMMI);
 	afx_msg void OnDestroy();
 	afx_msg void OnDropFiles(HDROP hDropInfo);
+
 private:
 	inja::Template m_IssueTemplate;
 	inja::Environment m_Env;
@@ -64,3 +65,11 @@ private:
 	void SaveSetting();
 	void SetupCallbacks();
 };
+
+// inja callbacks
+/// <summary>Convert UTC time string to local time string</summary>
+inja::json CallbackUtcToLocal(inja::Arguments& args);
+/// <summary> Convert UTC time string to "x ago" format string</summary>
+inja::json CallbackUtcToAgo(inja::Arguments& args);
+/// <summary>Convert UTC time string to "YYYY/MM/DD" format string</summary>
+inja::json CallbackUtcToYMD(inja::Arguments& args);
