@@ -33,19 +33,34 @@ protected:
 
 	wil::com_ptr<ICoreWebView2Controller> m_WebViewController;
 	wil::com_ptr<ICoreWebView2> m_WebView;
+	CString m_IssueFilePath;
 
 public:
 	CButton m_CtrlButtonLoad;
 	CButton m_CtrlButtonBack;
 	CButton m_CtrlButtonForward;
 	CStatic m_CtrlWebView;
+	CButton m_CtrlButtonReload;
 	afx_msg void OnBnClickedButtonLoad();
 	afx_msg void OnBnClickedButtonBack();
 	afx_msg void OnBnClickedButtonForward();
+	afx_msg void OnBnClickedButtonReload();
 	afx_msg void OnSize(UINT nType, int cx, int cy);
 	afx_msg void OnGetMinMaxInfo(MINMAXINFO* lpMMI);
 	afx_msg void OnDestroy();
 	afx_msg void OnDropFiles(HDROP hDropInfo);
 private:
-	bool LoadJson(const wchar_t* filePath);
+	inja::Template m_IssueTemplate;
+	inja::Environment m_Env;
+	std::map<int, std::string> m_Members;
+	std::map<int, std::string> m_Statuses;
+	std::map<int, std::string> m_Trackers;
+	std::map<int, std::string> m_Priorities;
+	void LoadCommonData();
+	nlohmann::json ReadJson(const wchar_t* filePath);
+	bool ShowIssue();
+	void ReplaceId(nlohmann::json& json, std::string property, std::string name, std::map<int, std::string> data);
+	void LoadSetting();
+	void SaveSetting();
+	void SetupCallbacks();
 };

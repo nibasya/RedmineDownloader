@@ -1,4 +1,4 @@
-﻿
+
 // RedmineViewer.h : PROJECT_NAME アプリケーションのメイン ヘッダー ファイルです
 //
 

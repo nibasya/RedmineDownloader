@@ -7,6 +7,8 @@
 #include "RedmineViewerDlg.h"
 #include "afxdialogex.h"
 #include "CAboutDlg.h"
+#include "RPTT.h"
+#include "GetLastErrorToString.h"
 
 using namespace Microsoft::WRL;
 using namespace wil;
@@ -33,6 +35,7 @@ void CRedmineViewerDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_BUTTON_BACK, m_CtrlButtonBack);
 	DDX_Control(pDX, IDC_BUTTON_FORWARD, m_CtrlButtonForward);
 	DDX_Control(pDX, IDC_WEBVEW2, m_CtrlWebView);
+	DDX_Control(pDX, IDC_BUTTON_RELOAD, m_CtrlButtonReload);
 }
 
 BEGIN_MESSAGE_MAP(CRedmineViewerDlg, CDialogEx)
@@ -46,6 +49,7 @@ BEGIN_MESSAGE_MAP(CRedmineViewerDlg, CDialogEx)
 	ON_WM_GETMINMAXINFO()
 	ON_WM_DESTROY()
 	ON_WM_DROPFILES()
+	ON_BN_CLICKED(IDC_BUTTON_RELOAD, &CRedmineViewerDlg::OnBnClickedButtonReload)
 END_MESSAGE_MAP()
 
 
@@ -82,6 +86,9 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 
 	// TODO: 初期化をここに追加します。
 	SetWindowText(CAboutDlg::GetAppVersion());	// バージョン情報の設定
+	LoadSetting();
+	SetupCallbacks();
+	LoadCommonData();
 	
 	// 	// COM初期化
 	HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -167,6 +174,7 @@ void CRedmineViewerDlg::OnDestroy()
 	CDialogEx::OnDestroy();
 
 	// TODO: ここにメッセージ ハンドラー コードを追加します。
+	SaveSetting();
 }
 
 
@@ -251,7 +259,8 @@ void CRedmineViewerDlg::OnBnClickedButtonLoad()
 		return;
 	}
 	CString filePath = dlg.GetPathName();
-	LoadJson(filePath);
+	m_IssueFilePath = filePath;
+	ShowIssue();
 }
 
 void CRedmineViewerDlg::OnBnClickedButtonBack()
@@ -262,6 +271,12 @@ void CRedmineViewerDlg::OnBnClickedButtonBack()
 void CRedmineViewerDlg::OnBnClickedButtonForward()
 {
 	// TODO: ここにコントロール通知ハンドラー コードを追加します。
+}
+
+void CRedmineViewerDlg::OnBnClickedButtonReload()
+{
+	LoadCommonData();
+	ShowIssue();
 }
 
 void CRedmineViewerDlg::OnDropFiles(HDROP hDropInfo)
@@ -278,39 +293,114 @@ void CRedmineViewerDlg::OnDropFiles(HDROP hDropInfo)
 				MessageBox(L"Please drop a JSON file.", L"Invalid File", MB_ICONERROR);
 				return;
 			}
-			LoadJson(filePath);
+			m_IssueFilePath = filePath;
+			ShowIssue();
 		}
 	}
 
 	CDialogEx::OnDropFiles(hDropInfo);
 }
 
-bool CRedmineViewerDlg::LoadJson(const wchar_t* filePath)
+void CRedmineViewerDlg::LoadCommonData()
 {
-	using namespace nlohmann;
-	using namespace inja;
+	m_Env.set_html_autoescape(true); // HTML エスケープを有効にする
+	m_IssueTemplate = m_Env.parse_template(L"Issue.html");
 
-	// エンコード柔軟性のため、ファイルの読み込み・JSON解析・htmlレンダリングを分割して処理する。
-	json j;
+	// optional items
+	nlohmann::json json;
+
+	m_Members.clear();
+	json = ReadJson(L"memberships.json");
+	if (json.contains("memberships")) {
+		for (auto member : json["memberships"]) {
+			if (member.contains("user")) {
+				auto user = member["user"];
+				if (user.contains("id") && user.contains("name")) {
+//					_RPTTN(_T("member ID:%d name: %s\n"), i["user"]["id"].get<int>(), (LPCTSTR)CA2W(i["user"]["name"].get<std::string>().c_str(), CP_UTF8));
+					m_Members[user["id"].get<int>()] = user["name"].get<std::string>();
+				}
+			}
+		}
+	}
+
+	m_Statuses.clear();
+	json = ReadJson(L"issue_statuses.json");
+	if (json.contains("issue_statuses")) {
+		for (auto status : json["issue_statuses"]) {
+			if (status.contains("id") && status.contains("name")) {
+//				_RPTTN(_T("status ID:%d name: %s\n"), status["id"].get<int>(), (LPCTSTR)CA2W(status["name"].get<std::string>().c_str(), CP_UTF8));
+				m_Statuses[status["id"].get<int>()] = status["name"].get<std::string>();
+			}
+		}
+	}
+
+	m_Trackers.clear();
+	json = ReadJson(L"trackers.json");
+	if (json.contains("trackers")) {
+		for (auto tracker : json["trackers"]) {
+			if (tracker.contains("id") && tracker.contains("name")) {
+				m_Trackers[tracker["id"].get<int>()] = tracker["name"].get<std::string>();
+			}
+		}
+	}
+
+	m_Priorities.clear();
+	json = ReadJson(L"issue_priorities.json");
+	if (json.contains("issue_priorities")) {
+		for (auto priority : json["issue_priorities"]) {
+			if (priority.contains("id") && priority.contains("name")) {
+				m_Priorities[priority["id"].get<int>()] = priority["name"].get<std::string>();
+			}
+		}
+	}
+}
+
+nlohmann::json CRedmineViewerDlg::ReadJson(const wchar_t* filePath)
+{
 	try {
 		std::ifstream ifs(filePath);
 		if (!ifs.is_open()) {
-			MessageBox(L"Failed to open the file.", L"Error", MB_ICONERROR);
-			return false;
+			return nlohmann::json();
 		}
-		j = json::parse(ifs);
+		return nlohmann::json::parse(ifs);
 	}
 	catch (const std::exception& e) {
-		MessageBox(CString(L"Failed to parse JSON: ") + CString(e.what()), L"Error", MB_ICONERROR);
+		MessageBox(CString(L"Failed to parse JSON: ") + filePath + L" Error: " + CString(e.what()), L"Error", MB_ICONERROR);
+		return nlohmann::json();
+	}
+}
+
+bool CRedmineViewerDlg::ShowIssue()
+{
+	nlohmann::json json = ReadJson(m_IssueFilePath);
+	if (json.empty()) {
+		MessageBox(L"Failed to open the file.", L"Error", MB_ICONERROR);
 		return false;
+	}
+	if (!json.contains("issue")) {
+		MessageBox(L"This json file does not include issue");
+		return false;
+	}
+	// replace IDs to names
+	if (json["issue"].contains("journals")) {
+		for (auto& journal : json["issue"]["journals"]) {
+			if (journal.contains("details")) {
+				for (auto& detail : journal["details"]) {
+					if (!detail.contains("property") || !detail.contains("name")) {
+						continue;
+					}
+					ReplaceId(detail, "attr", "status_id", m_Statuses);
+					ReplaceId(detail, "attr", "assigned_to_id", m_Members);
+					ReplaceId(detail, "attr", "tracker_id", m_Trackers);
+					ReplaceId(detail, "attr", "priority_id", m_Priorities);
+				}
+			}
+		}
 	}
 
 	// JSON データを HTML テンプレートに埋め込む
 	try {
-		inja::Environment env;
-		env.set_html_autoescape(true); // HTML エスケープを有効にする
-
-		std::string renderedHtml = env.render_file(L"Issue.html", j);
+		std::string renderedHtml = m_Env.render(m_IssueTemplate, json);
 		m_WebView->NavigateToString(CString(CA2W(renderedHtml.c_str(), CP_UTF8)));
 	}
 	catch (const std::exception& e) {
@@ -319,3 +409,150 @@ bool CRedmineViewerDlg::LoadJson(const wchar_t* filePath)
 	}
 	return true;
 }
+
+void CRedmineViewerDlg::ReplaceId(nlohmann::json& json, std::string property, std::string name, std::map<int, std::string> data)
+{
+	if (json["property"].get<std::string>() == property && json["name"].get<std::string>() == name) {
+		if (json.contains("old_value") && data.contains(atoi(json["old_value"].get<std::string>().c_str()))) {
+			json["old_value"] = data[atoi(json["old_value"].get<std::string>().c_str())];
+		}
+		if (json.contains("new_value") && data.contains(atoi(json["new_value"].get<std::string>().c_str()))) {
+			json["new_value"] = data[atoi(json["new_value"].get<std::string>().c_str())];
+		}
+	}
+}
+
+void CRedmineViewerDlg::LoadSetting()
+{
+	CWinApp* pApp = AfxGetApp();
+	CString section;
+	
+	section = L"WindowPosition";
+	CRect rc;
+	rc.top = pApp->GetProfileInt(section, L"top", -1);
+	rc.bottom = pApp->GetProfileInt(section, L"bottom", -1);
+	rc.left = pApp->GetProfileInt(section, L"left", -1);
+	rc.right = pApp->GetProfileInt(section, L"right", -1);
+	if (rc.top != -1) {
+		CRect rcWork;
+		SystemParametersInfo(SPI_GETWORKAREA, 0, &rcWork, 0);
+		if (rc.IntersectRect(rc, rcWork)) {
+			MoveWindow(&rc);
+		}
+	}
+}
+
+void CRedmineViewerDlg::SaveSetting()
+{
+	CWinApp* pApp = AfxGetApp();
+	CString section;
+
+	section = L"WindowPosition";
+	CRect rc;
+	GetWindowRect(&rc);
+	pApp->WriteProfileInt(section, L"top", rc.top);
+	pApp->WriteProfileInt(section, L"bottom", rc.bottom);
+	pApp->WriteProfileInt(section, L"left", rc.left);
+	pApp->WriteProfileInt(section, L"right", rc.right);
+}
+
+std::string UtcToLocal(std::string in, LPSYSTEMTIME pLocal)
+{
+	SYSTEMTIME utc;
+	ZeroMemory(&utc, sizeof(utc));
+	if (sscanf_s(in.c_str(), "%4hd-%2hd-%2hdT%2hd:%2hd:%2hdZ", &utc.wYear, &utc.wMonth, &utc.wDay, &utc.wHour, &utc.wMinute, &utc.wSecond) != 6) {
+		return std::string("not UTC!");
+	}
+	if (SystemTimeToTzSpecificLocalTime(NULL, &utc, pLocal) == 0) {
+		std::ostringstream out;
+		out << "UTC->Local failed!" << (LPCSTR)(CW2A(GetLastErrorToString(), CP_UTF8));
+		return out.str();
+	}
+	return "";
+}
+
+void CRedmineViewerDlg::SetupCallbacks()
+{
+	m_Env.add_callback("UtcToLocal", 1, [](inja::Arguments args) {
+		std::string in = args.at(0)->get<std::string>();
+		SYSTEMTIME local;
+		std::string err;
+		err = UtcToLocal(in, &local);
+		if (!err.empty()) {
+			return err;
+		}
+		CStringA out;
+		out.Format("%04d/%02d/%02d %02d:%02d:%02d", local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute, local.wSecond);
+		return std::string((LPCSTR)out);
+
+		//std::ostringstream out;
+		//out << local.wYear << "/" << local.wMonth << "/" << local.wDay << " " << local.wHour << ":" << local.wMinute << ":" << local.wSecond;
+		//return out.str();
+		});
+
+	m_Env.add_callback("UtcToAgo", 1, [](inja::Arguments args) {
+		std::string in = args.at(0)->get<std::string>();
+		SYSTEMTIME local;
+		std::string err;
+		err = UtcToLocal(in, &local);
+		if (!err.empty()) {
+			return err;
+		}
+		std::ostringstream oss;
+		CTimeSpan ts =  CTime::GetCurrentTime() - CTime(local);
+		if (ts.GetDays() / 365 > 1) {
+			oss << "over " << ts.GetDays() / 365 << " years";
+		}
+		else if (ts.GetDays() > 365) {
+			oss << "1 year";
+		}
+		else if (ts.GetDays() / 30 > 1) {
+			oss << ts.GetDays() / 30 << " months";
+		}
+		else if (ts.GetDays() > 30) {
+			oss << "1 month";
+		}
+		else if (ts.GetDays() > 1) {
+			oss << ts.GetDays() << " days";
+		}
+		else if (ts.GetDays() > 1) {
+			oss << "1 day";
+		}
+		else if (ts.GetHours() > 1) {
+			oss << ts.GetHours() << " hours";
+		}
+		else if (ts.GetHours() > 0) {
+			oss << "1 hour";
+		}
+		else if (ts.GetMinutes() > 1) {
+			oss << ts.GetMinutes() << " minutes";
+		}
+		else if (ts.GetMinutes() > 0) {
+			oss << "1 minute";
+		}
+		else if (ts.GetSeconds() > 1) {
+			oss << ts.GetSeconds() << " seconds";
+		}
+		else {
+			oss << ts.GetSeconds() << " second";
+		}
+		return oss.str();
+		});
+
+	m_Env.add_callback("UtcToYMD", 1, [](inja::Arguments args) {
+		std::string in = args.at(0)->get<std::string>();
+		SYSTEMTIME local;
+		std::string err;
+		err = UtcToLocal(in, &local);
+		if (!err.empty()) {
+			return err;
+		}
+		CStringA out;
+		out.Format("%04d/%02d/%02d", local.wYear, local.wMonth, local.wDay);
+		return std::string((LPCSTR)out);
+//		std::ostringstream out;
+//		out << local.wYear << "/" << local.wMonth << "/" << local.wDay << " ";
+//		return out.str();
+		});
+}
+
