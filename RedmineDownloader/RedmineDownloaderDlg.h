@@ -1,4 +1,4 @@
-﻿
+
 // RedmineDownloaderDlg.h : ヘッダー ファイル
 //
 
@@ -89,8 +89,10 @@ private:
 	std::list<UINT> m_NewIssue;	// 新しいIssueの一覧
 	std::list<UINT> m_UpdateIssue;	// アップデートが必要なIssueの一覧
 
+	//////////////////////////////////////////////////////////////
 	// ワーカースレッドの関数
 	static UINT __cdecl WorkerThread(LPVOID pParam);	// ワーカースレッド
+	void CreateRedmineDataFolder();	// RedmineDataフォルダの作成。エラー時にCWorkerErrorを投げる。
 
 	///	<summary>Downloads file and store the http_response.</summary>
 	/// <param name="uri"></param>
