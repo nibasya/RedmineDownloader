@@ -31,9 +31,13 @@ protected:
 	afx_msg HCURSOR OnQueryDragIcon();
 	DECLARE_MESSAGE_MAP()
 
+public:
 	wil::com_ptr<ICoreWebView2Controller> m_WebViewController;
 	wil::com_ptr<ICoreWebView2> m_WebView;
 	CString m_WebViewTempFolder;
+
+	HRESULT WebView2CreateController(HRESULT result, ICoreWebView2Controller* controller);
+	HRESULT NewWindowRequestHandler(ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args);	// 新規ウィンドウのリクエストを完全にブロックしつつuriを取得するイベントハンドラー
 
 public:
 	CButton m_CtrlButtonLoad;

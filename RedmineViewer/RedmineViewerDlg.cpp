@@ -120,51 +120,11 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 			}
 
 			// 環境からコントローラを作成（ダイアログの HWND を渡す）
-			env->CreateCoreWebView2Controller(
-				this->GetSafeHwnd(),
-				Microsoft::WRL::Callback<
-					ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-					[this](HRESULT controllerResult, ICoreWebView2Controller* controller) -> HRESULT
-				{
-					if (FAILED(controllerResult) || controller == nullptr)
-					{
-						// コントローラ作成失敗のハンドリング
-						return controllerResult;
-					}
-
-					// COM ポインタを保持
-					m_WebViewController = controller;
-					// コントローラから ICoreWebView2 を取得
-					ICoreWebView2* rawWebView = nullptr;
-					if (SUCCEEDED(m_WebViewController->get_CoreWebView2(&rawWebView)) && rawWebView != nullptr)
-					{
-						m_WebView = rawWebView; // wil::com_ptr に引き渡し
-
-						// ファイルのD&Dを禁止する
-						wil::com_ptr<ICoreWebView2Controller4> controller4 = m_WebViewController.try_query<ICoreWebView2Controller4>();
-						if (controller4) {
-							controller4->put_AllowExternalDrop(FALSE);
-						}
-
-						// ダイアログのクライアント領域に合わせて Bounds を設定
-						CRect rc;
-						m_CtrlWebView.GetWindowRect(&rc);
-						ScreenToClient(&rc);
-						RECT bounds = { rc.left, rc.top, rc.right, rc.bottom };
-						m_WebViewController->put_Bounds(bounds);
-
-						// 初期ページをロード
-						TCHAR szPath[MAX_PATH];
-						std::basic_string<TCHAR> tgtPath(L"file:///");
-						GetCurrentDirectory(MAX_PATH, szPath);
-						tgtPath.append(szPath);
-						std::replace(tgtPath.begin(), tgtPath.end(),L'\\', L'/');
-						tgtPath.append(L"/Issue.html");
-						m_WebView->Navigate(tgtPath.c_str());
-					}
-
-					return S_OK;
-				}).Get());
+			env->CreateCoreWebView2Controller(this->GetSafeHwnd(),
+				Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+					[this](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+						return this->WebView2CreateController(result, controller);
+					}).Get());
 			return S_OK;
 		}).Get());
 
@@ -172,6 +132,65 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 	UNREFERENCED_PARAMETER(hr);
 	
 	return TRUE;  // フォーカスをコントロールに設定した場合を除き、TRUE を返します。
+}
+
+
+HRESULT CRedmineViewerDlg::WebView2CreateController(HRESULT result, ICoreWebView2Controller* controller) {
+	if (FAILED(result) || controller == nullptr) return result;
+
+	m_WebViewController = controller;
+	ICoreWebView2* rawWebView = nullptr;
+	if (SUCCEEDED(m_WebViewController->get_CoreWebView2(&rawWebView)) && rawWebView != nullptr) {
+		m_WebView = rawWebView;
+
+		// Bounds の設定
+		CRect rc;
+		m_CtrlWebView.GetWindowRect(&rc);
+		ScreenToClient(&rc);
+		RECT bounds = { rc.left, rc.top, rc.right, rc.bottom };
+		m_WebViewController->put_Bounds(bounds);
+
+		// イベントハンドラの追加
+		m_WebView->add_NewWindowRequested(
+			Callback<ICoreWebView2NewWindowRequestedEventHandler>(
+				[this](ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args) {
+					return this->NewWindowRequestHandler(sender, args);
+				}).Get(), nullptr);
+
+		// 初期ロード処理
+		TCHAR szPath[MAX_PATH];
+		std::basic_string<TCHAR> tgtPath(L"file:///");
+		GetCurrentDirectory(MAX_PATH, szPath);
+		tgtPath.append(szPath);
+		std::replace(tgtPath.begin(), tgtPath.end(), L'\\', L'/');
+		tgtPath.append(L"/Issue.html");
+		m_WebView->Navigate(tgtPath.c_str());
+	}
+	return S_OK;
+}
+
+
+HRESULT CRedmineViewerDlg::NewWindowRequestHandler(ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args) {
+	wil::unique_cotaskmem_string uri;
+	args->get_Uri(&uri);
+	_RPTTN(_T("Blocked new window request: %s\n"), uri.get());
+
+	const int maxPath = 32767 + 1;
+	wchar_t path[maxPath];
+	DWORD len = maxPath;
+	HRESULT hr = PathCreateFromUrlW(uri.get(), path, &len, 0);
+
+	if (SUCCEEDED(hr)) {
+		if (_tcslen(path) > 5 && _tcsicmp(path + _tcslen(path) - 5, L".json") == 0) {
+			m_IssueFilePath = path;
+			ShowIssue();
+		}
+		else {
+			MessageBox(L"only .json file can be opened.", L"Invalid File", MB_ICONERROR);
+		}
+	}
+	args->put_Handled(TRUE);
+	return S_OK;
 }
 
 
