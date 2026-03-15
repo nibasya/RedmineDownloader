@@ -9,6 +9,9 @@
 #include "CAboutDlg.h"
 #include "RPTT.h"
 #include "GetLastErrorToString.h"
+#include <string>
+#include "../Shared/CommonConfig.h"
+
 
 using namespace Microsoft::WRL;
 using namespace wil;
@@ -19,8 +22,6 @@ using namespace wil;
 
 
 // CRedmineViewerDlg ダイアログ
-
-
 
 CRedmineViewerDlg::CRedmineViewerDlg(CWnd* pParent /*=nullptr*/)
 	: CDialogEx(IDD_REDMINEVIEWER_DIALOG, pParent)
@@ -303,14 +304,23 @@ void CRedmineViewerDlg::OnDropFiles(HDROP hDropInfo)
 
 void CRedmineViewerDlg::LoadCommonData()
 {
-	m_Env.set_html_autoescape(true); // HTML エスケープを有効にする
-	m_IssueTemplate = m_Env.parse_template(L"Issue.html");
+	try {
+		m_Env.set_html_autoescape(true); // HTML エスケープを有効にする
+		m_IssueTemplate = m_Env.parse_template(L"Issue.html");
+	}
+	catch (const inja::InjaError& e) {	// injaの例外をcatchする
+		std::ostringstream oss;
+		oss << "Failed to load template: " << e.what() << "\nType: " << e.type << "\nMessage: " << e.message << "\nLocation: Line " << e.location.line << ", Column " << e.location.column;
+		MessageBox(CString(oss.str().c_str()), L"Error", MB_ICONERROR);
+		return;
+	}
 
 	// optional items
 	nlohmann::json json;
 
 	m_Members.clear();
-	json = ReadJson(L"memberships.json");
+	CString commonDataPath = dynamic_cast<CRedmineViewerApp*>(AfxGetApp())->m_AppFolderPath + RedmineDataFolder;
+	json = ReadJson(commonDataPath + MembershipsFileName);
 	if (json.contains("memberships")) {
 		for (auto member : json["memberships"]) {
 			if (member.contains("user")) {
@@ -324,7 +334,7 @@ void CRedmineViewerDlg::LoadCommonData()
 	}
 
 	m_Statuses.clear();
-	json = ReadJson(L"issue_statuses.json");
+	json = ReadJson(commonDataPath + IssueStatusesFileName);
 	if (json.contains("issue_statuses")) {
 		for (auto status : json["issue_statuses"]) {
 			if (status.contains("id") && status.contains("name")) {
@@ -335,7 +345,7 @@ void CRedmineViewerDlg::LoadCommonData()
 	}
 
 	m_Trackers.clear();
-	json = ReadJson(L"trackers.json");
+	json = ReadJson(commonDataPath + TrackersFileName);
 	if (json.contains("trackers")) {
 		for (auto tracker : json["trackers"]) {
 			if (tracker.contains("id") && tracker.contains("name")) {
@@ -345,7 +355,7 @@ void CRedmineViewerDlg::LoadCommonData()
 	}
 
 	m_Priorities.clear();
-	json = ReadJson(L"issue_priorities.json");
+	json = ReadJson(commonDataPath + IssuePrioritiesFileName);
 	if (json.contains("issue_priorities")) {
 		for (auto priority : json["issue_priorities"]) {
 			if (priority.contains("id") && priority.contains("name")) {

@@ -1,4 +1,4 @@
-﻿
+
 // RedmineViewer.cpp : アプリケーションのクラス動作を定義します。
 //
 
@@ -70,6 +70,12 @@ BOOL CRedmineViewerApp::InitInstance()
 	// TODO: 会社名または組織名などの適切な文字列に
 	// この文字列を変更してください。
 	SetRegistryKey(_T("donadona"));
+
+	// アプリの実行ファイルのパスを取得して、データ保存フォルダの基準にする
+	TCHAR szPath[MAX_PATH];
+	::GetModuleFileName(NULL, szPath, MAX_PATH);
+	::PathRemoveFileSpec(szPath);
+	m_AppFolderPath = szPath;
 
 	CRedmineViewerDlg dlg;
 	m_pMainWnd = &dlg;

@@ -27,6 +27,9 @@ public:
 // 実装
 
 	DECLARE_MESSAGE_MAP()
+
+public:
+	CString m_AppFolderPath;	// アプリケーションのフォルダパス
 };
 
 extern CRedmineViewerApp theApp;
