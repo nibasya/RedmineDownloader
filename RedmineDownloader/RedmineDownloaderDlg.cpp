@@ -1,6 +1,3 @@
-﻿// RedmineDownloaderDlg.cpp : 実装ファイル
-//
-
 #include "pch.h"
 #include "framework.h"
 #include "RedmineDownloader.h"
@@ -10,14 +7,11 @@
 #include <string>
 #include <sstream>
 #include "rptt.h"
+#include "../Shared/CommonConfig.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
-
-const CString IssueListFileName(_T("\\issue_list.json"));
-const CString IssueFileName(_T("\\_issue.json")); 
-
 
 // CRedmineDownloaderDlg ダイアログ
 
@@ -358,6 +352,7 @@ UINT __cdecl CRedmineDownloaderDlg::WorkerThread(LPVOID pParam)
 	::PostMessage(pDlg->m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 
 	try {
+		pDlg->CreateRedmineDataFolder();
 		pDlg->GetMemberships();
 		pDlg->GetStatuses();
 		pDlg->GetTrackers();
@@ -378,6 +373,23 @@ UINT __cdecl CRedmineDownloaderDlg::WorkerThread(LPVOID pParam)
 
 	::PostMessage(pDlg->m_hWnd, WM_WORKER_STOPPED, 0, 0); // スレッド停止をメインスレッドに通知
 	return 0;
+}
+
+void CRedmineDownloaderDlg::CreateRedmineDataFolder()
+{
+	DWORD dwAttr = ::GetFileAttributes((LPCTSTR)(m_TargetFolder + RedmineDataFolder));
+	if ((dwAttr != INVALID_FILE_ATTRIBUTES) && (dwAttr & FILE_ATTRIBUTE_DIRECTORY)) {
+		return;	// すでに存在する場合は何もしない
+	}
+	if ((dwAttr != INVALID_FILE_ATTRIBUTES) && !(dwAttr & FILE_ATTRIBUTE_DIRECTORY)) {
+		MessageBox(L"保存先に RedmineData という名前のファイルが存在しています。保存先を変更するか、ファイルを削除してください。");
+		throw CWorkerError();
+	}
+	// create directory
+	if (CreateDirectory((LPCTSTR)(m_TargetFolder + RedmineDataFolder), NULL) == 0) {
+		MessageBox(L"RedmineData フォルダの作成に失敗しました。保存先のアクセス権を確認してください。");
+		throw CWorkerError();
+	}
 }
 
 void CRedmineDownloaderDlg::DownloadFile(const CString& uri, web::http::http_response& response, const int issueNo)
@@ -531,7 +543,7 @@ void CRedmineDownloaderDlg::GetMemberships()
 	CString uri;
 	uri.Format(_T("/projects/%s/memberships.json"), (LPCTSTR)m_TargetProjectId);
 	DownloadMultiPageJson(uri, jsonResponse, L"memberships");
-	SaveJson(m_TargetFolder + _T("\\memberships.json"), jsonResponse, _T("メンバー一覧の保存に失敗"));
+	SaveJson(m_TargetFolder + RedmineDataFolder + MembershipsFileName, jsonResponse, _T("メンバー一覧の保存に失敗"));
 }
 
 void CRedmineDownloaderDlg::GetStatuses()
@@ -543,7 +555,7 @@ void CRedmineDownloaderDlg::GetStatuses()
 	CString uri;
 	uri.Format(_T("/issue_statuses.json"));
 	DownloadMultiPageJson(uri, jsonResponse, L"issue_statuses");
-	SaveJson(m_TargetFolder + _T("\\issue_statuses.json"), jsonResponse, _T("ステータス一覧の保存に失敗"));
+	SaveJson(m_TargetFolder + RedmineDataFolder + IssueStatusesFileName, jsonResponse, _T("ステータス一覧の保存に失敗"));
 }
 
 void CRedmineDownloaderDlg::GetTrackers()
@@ -555,7 +567,7 @@ void CRedmineDownloaderDlg::GetTrackers()
 	CString uri;
 	uri.Format(_T("/trackers.json"));
 	DownloadMultiPageJson(uri, jsonResponse, L"trackers");
-	SaveJson(m_TargetFolder + _T("\\trackers.json"), jsonResponse, _T("トラッカー一覧の保存に失敗"));
+	SaveJson(m_TargetFolder + RedmineDataFolder + TrackersFileName, jsonResponse, _T("トラッカー一覧の保存に失敗"));
 }
 
 void CRedmineDownloaderDlg::GetPriorities()
@@ -567,7 +579,7 @@ void CRedmineDownloaderDlg::GetPriorities()
 	CString uri;
 	uri.Format(_T("/enumerations/issue_priorities.json"));
 	DownloadMultiPageJson(uri, jsonResponse, L"issue_priorities");
-	SaveJson(m_TargetFolder + _T("\\issue_priorities.json"), jsonResponse, _T("優先度一覧の保存に失敗"));
+	SaveJson(m_TargetFolder + RedmineDataFolder + IssuePrioritiesFileName, jsonResponse, _T("優先度一覧の保存に失敗"));
 }
 
 void CRedmineDownloaderDlg::GetIssueList()
