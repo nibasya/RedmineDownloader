@@ -115,11 +115,11 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 		{
 			if (FAILED(envResult) || env == nullptr)
 			{
-				// 環境作成に失敗した場合はログやエラーハンドリングを行ってください
+				MessageBox(_T("Failed to create WebView2 environment"), _T("Error"), MB_ICONERROR);
 				return envResult;
 			}
 
-			// 環境からコントローラを作成（ダイアログの HWND を渡す）
+			// Create controller and set up WebView2
 			env->CreateCoreWebView2Controller(this->GetSafeHwnd(),
 				Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
 					[this](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
@@ -135,7 +135,8 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 }
 
 
-HRESULT CRedmineViewerDlg::WebView2CreateController(HRESULT result, ICoreWebView2Controller* controller) {
+HRESULT CRedmineViewerDlg::WebView2CreateController(HRESULT result, ICoreWebView2Controller* controller)
+{
 	if (FAILED(result) || controller == nullptr) return result;
 
 	m_WebViewController = controller;
@@ -143,21 +144,21 @@ HRESULT CRedmineViewerDlg::WebView2CreateController(HRESULT result, ICoreWebView
 	if (SUCCEEDED(m_WebViewController->get_CoreWebView2(&rawWebView)) && rawWebView != nullptr) {
 		m_WebView = rawWebView;
 
-		// Bounds の設定
+		// configure bounds of the WebView2 control to fit the dialog's client area
 		CRect rc;
 		m_CtrlWebView.GetWindowRect(&rc);
 		ScreenToClient(&rc);
 		RECT bounds = { rc.left, rc.top, rc.right, rc.bottom };
 		m_WebViewController->put_Bounds(bounds);
 
-		// イベントハンドラの追加
+		// prevent new window and get uri when file is drag&dropped
 		m_WebView->add_NewWindowRequested(
 			Callback<ICoreWebView2NewWindowRequestedEventHandler>(
 				[this](ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args) {
 					return this->NewWindowRequestHandler(sender, args);
 				}).Get(), nullptr);
 
-		// 初期ロード処理
+		// Load initial page
 		TCHAR szPath[MAX_PATH];
 		std::basic_string<TCHAR> tgtPath(L"file:///");
 		GetCurrentDirectory(MAX_PATH, szPath);
@@ -170,18 +171,21 @@ HRESULT CRedmineViewerDlg::WebView2CreateController(HRESULT result, ICoreWebView
 }
 
 
-HRESULT CRedmineViewerDlg::NewWindowRequestHandler(ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args) {
+HRESULT CRedmineViewerDlg::NewWindowRequestHandler(ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args)
+{
+	// Get URI of the new window request (= file path of the dropped file)
 	wil::unique_cotaskmem_string uri;
 	args->get_Uri(&uri);
-	_RPTTN(_T("Blocked new window request: %s\n"), uri.get());
 
+	// convert URI to file path
 	const int maxPath = 32767 + 1;
-	wchar_t path[maxPath];
+	TCHAR* path = new TCHAR[maxPath];	// using new to avoid stack overflow
 	DWORD len = maxPath;
-	HRESULT hr = PathCreateFromUrlW(uri.get(), path, &len, 0);
+	HRESULT hr = PathCreateFromUrl(uri.get(), path, &len, 0);
 
+	// check if the file is .json and show issue
 	if (SUCCEEDED(hr)) {
-		if (_tcslen(path) > 5 && _tcsicmp(path + _tcslen(path) - 5, L".json") == 0) {
+		if (_tcslen(path) > 5 && _tcsicmp(path + _tcslen(path) - 5, _T(".json")) == 0) {
 			m_IssueFilePath = path;
 			ShowIssue();
 		}
@@ -189,7 +193,11 @@ HRESULT CRedmineViewerDlg::NewWindowRequestHandler(ICoreWebView2* sender, ICoreW
 			MessageBox(L"only .json file can be opened.", L"Invalid File", MB_ICONERROR);
 		}
 	}
-	args->put_Handled(TRUE);
+	args->put_Handled(TRUE);	// block new window (inform the request is processed, and no need to create default new window)
+
+	delete path;
+	path = NULL;
+
 	return S_OK;
 }
 
@@ -214,7 +222,7 @@ void CRedmineViewerDlg::OnDestroy()
 		fileOp.pFrom = from;
 		fileOp.fFlags = FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
 		int foRet = 0;
-		for (int counter = 0; counter < 4; counter++) {	// フォルダがロックされている可能性があるため、最大10回まで再試行}
+		for (int counter = 0; counter < 4; counter++) {	// フォルダがロックされている可能性があるため、最大4回(2 sec.)まで再試行}
 			foRet = SHFileOperation(&fileOp);	// this fuction cant't use GetLastError(), so check return value
 			if (foRet == 0) {
 				break;
@@ -228,6 +236,7 @@ void CRedmineViewerDlg::OnDestroy()
 			MessageBox(errorMsg, L"Error", MB_ICONERROR);
 		}
 	}
+	CoUninitialize();
 }
 
 
