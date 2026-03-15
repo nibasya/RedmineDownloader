@@ -195,12 +195,12 @@ void CRedmineViewerDlg::OnDestroy()
 		fileOp.pFrom = from;
 		fileOp.fFlags = FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
 		int foRet = 0;
-		for (int counter = 0; counter < 10; counter++) {	// フォルダがロックされている可能性があるため、最大10回まで再試行}
+		for (int counter = 0; counter < 4; counter++) {	// フォルダがロックされている可能性があるため、最大10回まで再試行}
 			foRet = SHFileOperation(&fileOp);	// this fuction cant't use GetLastError(), so check return value
 			if (foRet == 0) {
 				break;
 			}
-			Sleep(200);	// フォルダがロックされている可能性があるため、少し待ってから再試行
+			Sleep(500);	// フォルダがロックされている可能性があるため、少し待ってから再試行
 		}
 		if(foRet != 0) {
 			// エラー処理（必要に応じてログ出力など）
