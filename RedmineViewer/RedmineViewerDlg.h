@@ -33,7 +33,7 @@ protected:
 
 	wil::com_ptr<ICoreWebView2Controller> m_WebViewController;
 	wil::com_ptr<ICoreWebView2> m_WebView;
-	CString m_IssueFilePath;
+	CString m_WebViewTempFolder;
 
 public:
 	CButton m_CtrlButtonLoad;
@@ -51,12 +51,14 @@ public:
 	afx_msg void OnDropFiles(HDROP hDropInfo);
 
 private:
+	CString m_IssueFilePath;
 	inja::Template m_IssueTemplate;
 	inja::Environment m_Env;
 	std::map<int, std::string> m_Members;
 	std::map<int, std::string> m_Statuses;
 	std::map<int, std::string> m_Trackers;
 	std::map<int, std::string> m_Priorities;
+
 	void LoadCommonData();
 	nlohmann::json ReadJson(const wchar_t* filePath);
 	bool ShowIssue();

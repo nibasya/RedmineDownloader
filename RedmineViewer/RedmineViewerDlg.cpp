@@ -91,18 +91,23 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 	SetupCallbacks();
 	LoadCommonData();
 	
-	// 	// COM初期化
+	// COM初期化
 	HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 	if (FAILED(hr)) {
 		MessageBox(L"COM initialization failed", L"Error", MB_ICONERROR);
 		return FALSE;
 	}
 
+	// WebView2用一時フォルダ名の生成
+	wchar_t tempPath[MAX_PATH];
+	GetTempPath(MAX_PATH, tempPath);
+	m_WebViewTempFolder = CString(tempPath) + L"RedmineViewerWebView2";
+
 	// --- WebView2 初期化（WIL + WRL::Callback を利用） ---
 	// CreateCoreWebView2EnvironmentWithOptions の完了コールバックを設定
 	hr = CreateCoreWebView2EnvironmentWithOptions(
 		nullptr, // browserExecutableFolder
-		nullptr, // userDataFolder
+		m_WebViewTempFolder, // userDataFolder
 		nullptr, // environmentOptions (ICoreWebView2EnvironmentOptions* を渡す場合はここを変更)
 		Microsoft::WRL::Callback<
 			ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
@@ -172,10 +177,38 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 
 void CRedmineViewerDlg::OnDestroy()
 {
+	m_WebViewController.reset();
+	m_WebViewController = nullptr;
+	m_WebView.reset();
+	m_WebView = nullptr;
+
 	CDialogEx::OnDestroy();
 
 	// TODO: ここにメッセージ ハンドラー コードを追加します。
 	SaveSetting();
+	if (PathFileExists(m_WebViewTempFolder)) {	// WebView2のユーザーデータフォルダを削除
+		SHFILEOPSTRUCT fileOp = { 0 };
+		fileOp.wFunc = FO_DELETE;
+		TCHAR from[MAX_PATH + 1];
+		_tcscpy_s(from, m_WebViewTempFolder.GetString());
+		from[m_WebViewTempFolder.GetLength() + 1] = L'\0'; // ダブルヌルで終わる必要がある
+		fileOp.pFrom = from;
+		fileOp.fFlags = FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
+		int foRet = 0;
+		for (int counter = 0; counter < 10; counter++) {	// フォルダがロックされている可能性があるため、最大10回まで再試行}
+			foRet = SHFileOperation(&fileOp);	// this fuction cant't use GetLastError(), so check return value
+			if (foRet == 0) {
+				break;
+			}
+			Sleep(200);	// フォルダがロックされている可能性があるため、少し待ってから再試行
+		}
+		if(foRet != 0) {
+			// エラー処理（必要に応じてログ出力など）
+			CString errorMsg;
+			errorMsg.Format(L"Failed to delete WebView2 temp folder %s. Error code: %d", fileOp.pFrom, foRet);
+			MessageBox(errorMsg, L"Error", MB_ICONERROR);
+		}
+	}
 }
 
 
