@@ -179,13 +179,15 @@ HRESULT CRedmineViewerDlg::NewWindowRequestHandler(ICoreWebView2* sender, ICoreW
 
 	// convert URI to file path
 	const int maxPath = 32767 + 1;
-	TCHAR* path = new TCHAR[maxPath];	// using new to avoid stack overflow
-	DWORD len = maxPath;
-	HRESULT hr = PathCreateFromUrl(uri.get(), path, &len, 0);
+	CString path(uri.get());
+	HRESULT hr = UrlUnescapeW(path.GetBuffer(maxPath), NULL, NULL, URL_UNESCAPE_INPLACE | URL_UNESCAPE_AS_UTF8);
 
 	// check if the file is .json and show issue
 	if (SUCCEEDED(hr)) {
-		if (_tcslen(path) > 5 && _tcsicmp(path + _tcslen(path) - 5, _T(".json")) == 0) {
+		if (path.Left(8).CompareNoCase(L"file:///") == 0){
+			path = path.Mid(8);	// remove "file:///"
+		}
+		if (path.Right(5).CompareNoCase(L".json") == 0) {
 			m_IssueFilePath = path;
 			ShowIssue();
 		}
@@ -193,10 +195,10 @@ HRESULT CRedmineViewerDlg::NewWindowRequestHandler(ICoreWebView2* sender, ICoreW
 			MessageBox(L"only .json file can be opened.", L"Invalid File", MB_ICONERROR);
 		}
 	}
+	else {
+		MessageBox(L"Failed to get file path from URI.", L"Error", MB_ICONERROR);
+	}
 	args->put_Handled(TRUE);	// block new window (inform the request is processed, and no need to create default new window)
-
-	delete path;
-	path = NULL;
 
 	return S_OK;
 }
