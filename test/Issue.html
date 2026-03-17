@@ -55,24 +55,15 @@
         </tr>
         <tr>
           <td><small>Category:</small></td>
-## if not existsIn(issue, "category")
-## set issue.category.name = "-"
-## endif
-          <td><small>{{ issue.category.name }}</small></td>
+          <td><small>{{ default(issue.category.name, "-") }}</small></td>
         </tr>
         <tr>
           <td><small>Target version:</small></td>
-## if not existsIn(issue, "fixed_version_id")
-## set issue.fixed_version_id.name = "-"
-## endif
-          <td><small>{{ issue.fixed_version_id.name }}</small></td>
+          <td><small>{{ default(issue.fixed_version_id.name, "-") }}</small></td>
         </tr>
         <tr>
           <td><small>Estimated time:</small></td>
-## if not existsIn(issue, "estimated_hours")
-## set issue.estimated_hours.name = "-"
-## endif
-          <td><small>{{ issue.estimated_hours.name }}</small></td>
+          <td><small>{{ default(issue.estimated_hours, "-") }}</small></td>
         </tr>
       </table>
     </td>
@@ -81,11 +72,11 @@
       <table width="100%" border="0" cellspacing="0" cellpadding="2">
         <tr>
           <td><small>Start date:</small></td>
-          <td><small>{% if existsIn(issue, "start_date")%}{{ UtcToYMD(issue.start_date) }}{% else %}-{% endif %}</small></td>
+          <td><small>{% if existsIn(issue, "start_date") and issue.start_date != null %}{{ UtcToYMD(issue.start_date) }}{% else %}-{% endif %}</small></td>
         </tr>
         <tr>
           <td><small>Due date:</small></td>
-          <td><small>{% if existsIn(issue, "due_date")%}{{ UtcToYMD(issue.due_date) }}{% else %}-{% endif %}</small></td>
+          <td><small>{% if existsIn(issue, "due_date") and issue.due_date != null %}{{ UtcToYMD(issue.due_date) }}{% else %}-{% endif %}</small></td>
         </tr>
         <tr>
           <td><small>% Done:</small></td>
@@ -93,7 +84,7 @@
         </tr>
         <tr>
           <td><small>Spent time:</small></td>
-          <td><small>{% if existsIn(issue, "spent_hours")%}{% if issue.spent_hours == 0 %}-{% else %}{{issue.spent_hours}}{% endif %}{% else %}-{% endif %}</small></td>
+          <td><small>{% if existsIn(issue, "spent_hours") and issue.spent_hours != null %}{% if issue.spent_hours == 0 %}-{% else %}{{issue.spent_hours}}{% endif %}{% else %}-{% endif %}</small></td>
         </tr>
       </table>
     </td>
@@ -104,10 +95,7 @@
 
 <!-- Description -->
 <h3>Description</h3>
-
-<pre>
-<div style="white-space: pre-wrap;">{{issue.description}}</div>
-</pre>
+{{issue.description}}
 
 <!-- Attachments -->
 ## if length(issue.attachments) > 0
@@ -194,7 +182,7 @@
 ## if length(journal.notes) > 0 and length(journal.details) > 0
     <hr>
 ## endif
-    <div style="white-space: pre-wrap;"><p style="margin-top: 10px; font-size: 13px;">{{ journal.notes }}</p></div>
+    <p style="margin-top: 10px; font-size: 13px;">{{ journal.notes }}</p>
 ## endif
   </div>
 </small>
