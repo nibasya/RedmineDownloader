@@ -173,6 +173,8 @@ HRESULT CRedmineViewerDlg::WebView2CreateController(HRESULT result, ICoreWebView
 
 HRESULT CRedmineViewerDlg::NewWindowRequestHandler(ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args)
 {
+	args->put_Handled(TRUE);	// block new window (inform the request is processed, and no need to create default new window)
+
 	// Get URI of the new window request (= file path of the dropped file)
 	wil::unique_cotaskmem_string uri;
 	args->get_Uri(&uri);
@@ -181,24 +183,34 @@ HRESULT CRedmineViewerDlg::NewWindowRequestHandler(ICoreWebView2* sender, ICoreW
 	const int maxPath = 32767 + 1;
 	CString path(uri.get());
 	HRESULT hr = UrlUnescapeW(path.GetBuffer(maxPath), NULL, NULL, URL_UNESCAPE_INPLACE | URL_UNESCAPE_AS_UTF8);
+	path.ReleaseBuffer();
+	if (!SUCCEEDED(hr)) {
+		MessageBox(CString(_T("Failed to get file path from URI: ")) + uri.get(), _T("Error"), MB_ICONERROR);
+		return S_OK;
+	}
 
+	if (path.Left(8).CompareNoCase(_T("file:///")) == 0){
+		path = path.Mid(8);	// remove "file:///"
+	}
+	// check if the path is folder. if folder is dropped, add \issue.json to the path
+	DWORD dwAttr = ::GetFileAttributes((LPCTSTR)path);
+	if ((dwAttr != INVALID_FILE_ATTRIBUTES) && (dwAttr & FILE_ATTRIBUTE_DIRECTORY)) {	// フォルダがドロップされた場合
+		path += _T("/_issue.json");
+	}
 	// check if the file is .json and show issue
-	if (SUCCEEDED(hr)) {
-		if (path.Left(8).CompareNoCase(L"file:///") == 0){
-			path = path.Mid(8);	// remove "file:///"
-		}
-		if (path.Right(5).CompareNoCase(L".json") == 0) {
-			m_IssueFilePath = path;
-			ShowIssue();
-		}
-		else {
-			MessageBox(L"only .json file can be opened.", L"Invalid File", MB_ICONERROR);
-		}
+	if (path.Right(5).CompareNoCase(L".json") != 0) {
+		MessageBox(CString(_T("only .json file can be opened: ")) + path, _T("Invalid File"), MB_ICONERROR);
+		return S_OK;
 	}
-	else {
-		MessageBox(L"Failed to get file path from URI.", L"Error", MB_ICONERROR);
+	// check if the file exists.
+	dwAttr = ::GetFileAttributes((LPCTSTR)path);
+	if (dwAttr == INVALID_FILE_ATTRIBUTES || (dwAttr & FILE_ATTRIBUTE_DIRECTORY)) {	// 指定ファイルがない場合
+		MessageBox(CString(_T("File not found: ")) + path, _T("File not found"), MB_ICONERROR);
+		return S_OK;
 	}
-	args->put_Handled(TRUE);	// block new window (inform the request is processed, and no need to create default new window)
+
+	m_IssueFilePath = path;
+	ShowIssue();
 
 	return S_OK;
 }
