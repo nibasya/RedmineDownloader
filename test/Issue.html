@@ -27,8 +27,8 @@
         {{ issue.subject }}
       </h2>
       <small>
-        Added by {{ issue.author.name }} on <a href="#" title="{{ UtcToLocal(issue.created_on) }}">{{ UtcToAgo(issue.created_on) }}</a> ago.
-        Updated on <a href="#" title="{{ UtcToLocal(issue.updated_on) }}">{{ UtcToAgo(issue.updated_on) }}</a> ago.
+        Added by {{ issue.author.name }} on <a href="#" title="{{ UtcToLocal(issue.created_on, "-") }}">{{ UtcToAgo(issue.created_on, "-") }}</a> ago.
+        Updated on <a href="#" title="{{ UtcToLocal(issue.updated_on, "-") }}">{{ UtcToAgo(issue.updated_on, "-") }}</a> ago.
       </small>
     </td>
   </tr>
@@ -72,11 +72,11 @@
       <table width="100%" border="0" cellspacing="0" cellpadding="2">
         <tr>
           <td><small>Start date:</small></td>
-          <td><small>{% if existsIn(issue, "start_date") and issue.start_date != null %}{{ UtcToYMD(issue.start_date) }}{% else %}-{% endif %}</small></td>
+          <td><small>{{ UtcToYMD(issue.start_date, "-") }}</small></td>
         </tr>
         <tr>
           <td><small>Due date:</small></td>
-          <td><small>{% if existsIn(issue, "due_date") and issue.due_date != null %}{{ UtcToYMD(issue.due_date) }}{% else %}-{% endif %}</small></td>
+          <td><small>{{{ UtcToYMD(issue.due_date, "-") }}</small></td>
         </tr>
         <tr>
           <td><small>% Done:</small></td>
@@ -105,7 +105,7 @@
       <small>
         <b>Files</b><br>
 ## for attachment in issue.attachments
-        • <a href="#">{{ attachment.filename }}</a> ({{ round(attachment.filesize / 1024, 1) }} KB) &nbsp; <small>{{ attachment.author.name }}, {{ UtcToLocal(attachment.created_on) }}</small><br>
+        • <a href="#">{{ attachment.filename }}</a> ({{ round(attachment.filesize / 1024, 1) }} KB) &nbsp; <small>{{ attachment.author.name }}, {{ UtcToLocal(attachment.created_on, "-") }}</small><br>
 ## endfor
       </small>
     </td>
@@ -122,7 +122,7 @@
 
 ## for journal in issue.journals
 <div style="background-color: #f6f6f6; padding: 5px 10px; font-size: 12px; margin-top: 10px;">
-  <small>#{{ loop.index1 }} <b>Updated by {{ journal.user.name }}</b> <a href="#" title="{{ UtcToLocal(journal.created_on) }}">{{ UtcToAgo(journal.created_on) }}</a> ago</small><br>
+  <small>#{{ loop.index1 }} <b>Updated by {{ journal.user.name }}</b> <a href="#" title="{{ UtcToLocal(journal.created_on, "-") }}">{{ UtcToAgo(journal.created_on, "-") }}</a> ago</small><br>
 </div>
 
 <!-- properties -->

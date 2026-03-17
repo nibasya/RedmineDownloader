@@ -587,15 +587,31 @@ std::string UtcToLocal(std::string in, LPSYSTEMTIME pLocal)
 
 void CRedmineViewerDlg::SetupCallbacks()
 {
-	m_Env.add_callback("UtcToLocal", 1, CallbackUtcToLocal);
+	m_Env.add_callback("UtcToLocal", 2, CallbackUtcToLocal);
 
-	m_Env.add_callback("UtcToAgo", 1, CallbackUtcToAgo);
+	m_Env.add_callback("UtcToAgo", 2, CallbackUtcToAgo);
 
-	m_Env.add_callback("UtcToYMD", 1, CallbackUtcToYMD);
+	m_Env.add_callback("UtcToYMD", 2, CallbackUtcToYMD);
 }
 
 inja::json CallbackUtcToLocal(inja::Arguments& args)
 {
+	if (args.size() < 2) {
+		return std::string("(not enough arguments)");
+	}
+	if (!args.at(0)->is_string()) {
+		if (!args.at(1)->is_string()) {
+			if(args.at(0)->is_null())
+				return std::string("(null)");
+			if(args.at(0)->is_number())
+				return std::string("(number)");
+			if(args.at(0)->empty())
+				return std::string("(empty)");
+		} else {
+			return args.at(1)->get<std::string>();
+		}
+	}
+
 	std::string in = args.at(0)->get<std::string>();
 	SYSTEMTIME local;
 	std::string err;
@@ -660,6 +676,20 @@ inja::json CallbackUtcToAgo(inja::Arguments& args)
 
 inja::json CallbackUtcToYMD(inja::Arguments& args)
 {
+	if (!args.at(0)->is_string()) {
+		if (!args.at(1)->is_string()) {
+			if (args.at(0)->is_null())
+				return std::string("(null)");
+			if (args.at(0)->is_number())
+				return std::string("(number)");
+			if (args.at(0)->empty())
+				return std::string("(empty)");
+		}
+		else {
+			return args.at(1)->get<std::string>();
+		}
+	}
+
 	std::string in = args.at(0)->get<std::string>();
 	SYSTEMTIME local;
 	std::string err;
