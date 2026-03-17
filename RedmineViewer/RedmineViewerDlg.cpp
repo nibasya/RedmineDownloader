@@ -380,7 +380,6 @@ void CRedmineViewerDlg::OnDropFiles(HDROP hDropInfo)
 void CRedmineViewerDlg::LoadCommonData()
 {
 	try {
-		m_Env.set_html_autoescape(true); // HTML エスケープを有効にする
 		m_IssueTemplate = m_Env.parse_template(L"Issue.html");
 	}
 	catch (const inja::InjaError& e) {	// injaの例外をcatchする
@@ -466,9 +465,9 @@ bool CRedmineViewerDlg::ShowIssue()
 		MessageBox(L"This json file does not include issue");
 		return false;
 	}
-	// replace IDs to names
 	if (json["issue"].contains("journals")) {
 		for (auto& journal : json["issue"]["journals"]) {
+			// replace IDs to names
 			if (journal.contains("details")) {
 				for (auto& detail : journal["details"]) {
 					if (!detail.contains("property") || !detail.contains("name")) {
@@ -480,13 +479,20 @@ bool CRedmineViewerDlg::ShowIssue()
 					ReplaceId(detail, "attr", "priority_id", m_Priorities);
 				}
 			}
+			// convert markdown in journal notes
+			if (journal.contains("notes")) {
+				journal["notes"] = ConvertMdToHtml(journal["notes"].get<std::string>());
+			}
 		}
 	}
 
+	// convert markdown in description
+	json["issue"]["description"] = ConvertMdToHtml(json["issue"]["description"].get<std::string>());
+
 	// JSON データを HTML テンプレートに埋め込む
 	try {
-		std::string renderedHtml = m_Env.render(m_IssueTemplate, json);
-		m_WebView->NavigateToString(CString(CA2W(renderedHtml.c_str(), CP_UTF8)));
+		std::string injaOutput = m_Env.render(m_IssueTemplate, json);
+		m_WebView->NavigateToString(CString(CA2W(injaOutput.c_str(), CP_UTF8)));
 	}
 	catch (const std::exception& e) {
 		MessageBox(CString(L"Failed to render HTML: ") + CString(e.what()), L"Error", MB_ICONERROR);
@@ -505,6 +511,29 @@ void CRedmineViewerDlg::ReplaceId(nlohmann::json& json, std::string property, st
 			json["new_value"] = data[atoi(json["new_value"].get<std::string>().c_str())];
 		}
 	}
+}
+
+std::string CRedmineViewerDlg::ConvertMdToHtml(std::string mdText)
+{
+	std::string html;
+
+	// GFM拡張（テーブル、タスクリスト、打ち消し線など）を有効化
+	unsigned int parser_flags = MD_FLAG_STRIKETHROUGH | MD_FLAG_COLLAPSEWHITESPACE | MD_FLAG_TABLES;
+	unsigned int render_flags = MD_HTML_FLAG_SKIP_UTF8_BOM;
+
+	int result = md_html(mdText.c_str(), (MD_SIZE)mdText.length(),
+		ConvertMdToHtmlSub, &html, parser_flags, render_flags);
+
+	if (result != 0) {	// failed to convert markdown to HTML
+		return mdText;
+	}
+	return html;
+}
+
+void CRedmineViewerDlg::ConvertMdToHtmlSub(const MD_CHAR* text, MD_SIZE size, void* userData)
+{
+	std::string* out = static_cast<std::string*>(userData);
+	out->append(text, size);
 }
 
 void CRedmineViewerDlg::LoadSetting()
@@ -577,11 +606,6 @@ inja::json CallbackUtcToLocal(inja::Arguments& args)
 	CStringA out;
 	out.Format("%04d/%02d/%02d %02d:%02d:%02d", local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute, local.wSecond);
 	return std::string((LPCSTR)out);
-
-	//std::ostringstream out;
-	//out << local.wYear << "/" << local.wMonth << "/" << local.wDay << " " << local.wHour << ":" << local.wMinute << ":" << local.wSecond;
-	//return out.str();
-//	return inja::json();
 }
 
 inja::json CallbackUtcToAgo(inja::Arguments& args)

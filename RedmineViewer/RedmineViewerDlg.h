@@ -67,6 +67,8 @@ private:
 	nlohmann::json ReadJson(const wchar_t* filePath);
 	bool ShowIssue();
 	void ReplaceId(nlohmann::json& json, std::string property, std::string name, std::map<int, std::string> data);
+	std::string ConvertMdToHtml(std::string mdText);		// Converts Markdown text into HTML body
+	static void ConvertMdToHtmlSub(const MD_CHAR* text, MD_SIZE size, void* userData);	// callback for ConvertMDToHtml
 	void LoadSetting();
 	void SaveSetting();
 	void SetupCallbacks();

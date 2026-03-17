@@ -14,5 +14,6 @@
 #include <WebView2.h>
 #include <nlohmann/json.hpp>
 #include "inja.hpp"
+#include <md4c-html.h>
 
 #endif //PCH_H
