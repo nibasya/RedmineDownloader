@@ -75,6 +75,8 @@ private:
 };
 
 // inja callbacks
+/// <summary>Check if 1st argument is a string</summary>
+bool CallbackIs1stArgString(const inja::Arguments& args, inja::json& errText);
 /// <summary>Convert UTC time string to local time string</summary>
 inja::json CallbackUtcToLocal(inja::Arguments& args);
 /// <summary> Convert UTC time string to "x ago" format string</summary>

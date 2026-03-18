@@ -570,17 +570,23 @@ void CRedmineViewerDlg::SaveSetting()
 	pApp->WriteProfileInt(section, L"right", rc.right);
 }
 
-std::string UtcToLocal(std::string in, LPSYSTEMTIME pLocal)
+std::string UtcToLocal(const inja::Arguments& args, LPSYSTEMTIME pLocal)
 {
+	std::string in = args.at(0)->get<std::string>();
+	std::string err = args.at(1)->get<std::string>();
+
+	// inがエラー文字列と同じ場合はエラーとみなす
+	if (in == err) {
+		return err;
+	}
+
 	SYSTEMTIME utc;
 	ZeroMemory(&utc, sizeof(utc));
 	if (sscanf_s(in.c_str(), "%4hd-%2hd-%2hdT%2hd:%2hd:%2hdZ", &utc.wYear, &utc.wMonth, &utc.wDay, &utc.wHour, &utc.wMinute, &utc.wSecond) != 6) {
-		return std::string("not UTC!");
+		return "Not UTC! " + in;
 	}
 	if (SystemTimeToTzSpecificLocalTime(NULL, &utc, pLocal) == 0) {
-		std::ostringstream out;
-		out << "UTC->Local failed!" << (LPCSTR)(CW2A(GetLastErrorToString(), CP_UTF8));
-		return out.str();
+		return std::string("UTC->Local failed!") + (LPCSTR)(CW2A(GetLastErrorToString(), CP_UTF8));
 	}
 	return "";
 }
@@ -594,31 +600,41 @@ void CRedmineViewerDlg::SetupCallbacks()
 	m_Env.add_callback("UtcToYMD", 2, CallbackUtcToYMD);
 }
 
+bool CallbackIs1stArgString(const inja::Arguments& args, inja::json& errText)
+{
+	const inja::json* in = args.at(0);
+	const inja::json* err = args.at(1);
+
+	if (!in->is_string()) {
+		if (!err->is_string()) {
+			if (in->is_null())
+				errText = std::string("(null)");
+			if (in->is_number())
+				errText = std::string("(number)");
+			if (in->empty())
+				errText = std::string("(empty)");
+		}
+		else {
+			errText = err->get<std::string>();
+		}
+		return false;
+	}
+	return true;
+}
+
 inja::json CallbackUtcToLocal(inja::Arguments& args)
 {
-	if (args.size() < 2) {
-		return std::string("(not enough arguments)");
-	}
-	if (!args.at(0)->is_string()) {
-		if (!args.at(1)->is_string()) {
-			if(args.at(0)->is_null())
-				return std::string("(null)");
-			if(args.at(0)->is_number())
-				return std::string("(number)");
-			if(args.at(0)->empty())
-				return std::string("(empty)");
-		} else {
-			return args.at(1)->get<std::string>();
-		}
+	inja::json errText;
+	if (!CallbackIs1stArgString(args, errText)) {
+		return errText;
 	}
 
-	std::string in = args.at(0)->get<std::string>();
 	SYSTEMTIME local;
-	std::string err;
-	err = UtcToLocal(in, &local);
+	std::string err = UtcToLocal(args, &local);
 	if (!err.empty()) {
 		return err;
 	}
+
 	CStringA out;
 	out.Format("%04d/%02d/%02d %02d:%02d:%02d", local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute, local.wSecond);
 	return std::string((LPCSTR)out);
@@ -626,13 +642,17 @@ inja::json CallbackUtcToLocal(inja::Arguments& args)
 
 inja::json CallbackUtcToAgo(inja::Arguments& args)
 {
-	std::string in = args.at(0)->get<std::string>();
+	inja::json errText;
+	if (!CallbackIs1stArgString(args, errText)) {
+		return errText;
+	}
+
 	SYSTEMTIME local;
-	std::string err;
-	err = UtcToLocal(in, &local);
+	std::string err = UtcToLocal(args, &local);
 	if (!err.empty()) {
 		return err;
 	}
+
 	std::ostringstream oss;
 	CTimeSpan ts = CTime::GetCurrentTime() - CTime(local);
 	if (ts.GetDays() / 365 > 1) {
@@ -676,27 +696,17 @@ inja::json CallbackUtcToAgo(inja::Arguments& args)
 
 inja::json CallbackUtcToYMD(inja::Arguments& args)
 {
-	if (!args.at(0)->is_string()) {
-		if (!args.at(1)->is_string()) {
-			if (args.at(0)->is_null())
-				return std::string("(null)");
-			if (args.at(0)->is_number())
-				return std::string("(number)");
-			if (args.at(0)->empty())
-				return std::string("(empty)");
-		}
-		else {
-			return args.at(1)->get<std::string>();
-		}
+	inja::json errText;
+	if (!CallbackIs1stArgString(args, errText)) {
+		return errText;
 	}
 
-	std::string in = args.at(0)->get<std::string>();
 	SYSTEMTIME local;
-	std::string err;
-	err = UtcToLocal(in, &local);
+	std::string err = UtcToLocal(args, &local);
 	if (!err.empty()) {
 		return err;
 	}
+
 	CStringA out;
 	out.Format("%04d/%02d/%02d", local.wYear, local.wMonth, local.wDay);
 	return std::string((LPCSTR)out);
