@@ -10,8 +10,9 @@
 #include "RPTT.h"
 #include "GetLastErrorToString.h"
 #include <string>
-#include "../Shared/CommonConfig.h"
 #include <pathcch.h>
+#include <regex>
+#include "../Shared/CommonConfig.h"
 #include "../Shared/CommonFunc.h"
 
 
@@ -242,7 +243,7 @@ HRESULT CRedmineViewerDlg::NavigationStartingHandler(ICoreWebView2* sender, ICor
 	args->get_Uri(&uri);
 
 	// 内部生成テキストだった場合の処理
-	const CString internalText(_T("data:text/html;"));
+	const CString internalText(L"data:text/html;");
 	path = uri.get();
 	if (path.Left(internalText.GetLength()) == internalText) {
 		return S_OK;
@@ -253,31 +254,37 @@ HRESULT CRedmineViewerDlg::NavigationStartingHandler(ICoreWebView2* sender, ICor
 		args->put_Cancel(TRUE);
 		UrlUnescape(path.GetBuffer(), NULL, NULL, URL_UNESCAPE_INPLACE | URL_UNESCAPE_AS_UTF8);
 		path = path.Mid(LocalHost.GetLength() - 1);	// leave last '/'
-		path.SetAt(0, _T('\\'));
+		path.SetAt(0, L'\\');
 		const int MAXPATH = 32767 + 1;
 		CString localPath = m_IssueFilePath;
-		localPath.Replace(_T('/'), _T('\\'));
+		localPath.Replace(L'/', L'\\');
+		path.Replace(L'/', L'\\');
 		if (!SUCCEEDED(PathCchRemoveFileSpec(localPath.GetBuffer(MAXPATH), MAXPATH))) {
 			localPath.ReleaseBuffer();
-			MessageBox(CString(_T("PathCchRemoveFileSpec failed: ")) + localPath);
+			MessageBox(CString(L"PathCchRemoveFileSpec failed: ") + localPath);
 			return S_OK;
 		}
 		localPath.ReleaseBuffer();
-		path = localPath + path;
+		path = localPath + L"\\.." + path;
 		if (!PathFileExists(path)) {
-			MessageBox(CString(_T("file does not exist: ")), path);
+			MessageBox(CString(L"file does not exist: "), path);
 			return S_OK;
 		}
-		HINSTANCE hInst = ::ShellExecute(NULL, _T("open"), path, NULL, NULL, SW_SHOWNORMAL);
+		if (path.Right(IssueFileName.GetLength()) == IssueFileName) {
+			m_IssueFilePath = path;
+			ShowIssue();
+			return S_OK;
+		}
+		HINSTANCE hInst = ::ShellExecute(NULL, L"open", path, NULL, NULL, SW_SHOWNORMAL);
 		if ((INT_PTR)hInst <= 32) {	// 戻り値が 32 より大きければ成功
-			MessageBox(CString(_T("Failed to open file: ")) + path);
+			MessageBox(CString(L"Failed to open file: ") + path);
 		}
 		return S_OK;
 	}
 	WebView2GetLocalFilePathFromUri(uri, path);
 
 	// issueファイルだった場合の処理
-	if (path.Right(12) == IssueFileName) {
+	if (path.Right(IssueFileName.GetLength()) == IssueFileName) {
 		return E_NOTIMPL;
 	}
 
@@ -543,9 +550,12 @@ bool CRedmineViewerDlg::ShowIssue()
 	}
 
 	// set localhost URL
-	json["_localhost"] = std::string(CW2A(LocalHost));
+	CString localhostURL;
+	localhostURL.Format(L"%s/%d/", LocalHost, json["issue"]["id"].get<int>());
+	json["_localhost"] = std::string(CW2A(localhostURL));
 
 	// process header
+	json["issue"]["description"] = ReplaceIssueLink(json["issue"]["description"].get<std::string>());
 	json["issue"]["description"] = ConvertMdToHtml(json["issue"]["description"].get<std::string>());
 
 	// process attachments
@@ -557,7 +567,6 @@ bool CRedmineViewerDlg::ShowIssue()
 			attachment["local_filename"] = std::string(CW2A((LPCWSTR)GetFileNameFromJson(filename, id), CP_UTF8));
 		}
 	}
-
 
 	// process notes
 	if (json["issue"].contains("journals")) {
@@ -589,6 +598,7 @@ bool CRedmineViewerDlg::ShowIssue()
 
 			// convert markdown in journal notes
 			if (journal.contains("notes")) {
+				journal["notes"] = ReplaceIssueLink(journal["notes"].get<std::string>());
 				journal["notes"] = ConvertMdToHtml(journal["notes"].get<std::string>());
 			}
 		}
@@ -617,6 +627,14 @@ void CRedmineViewerDlg::ReplaceId(nlohmann::json& json, std::string property, st
 			json["new_value"] = data[atoi(json["new_value"].get<std::string>().c_str())];
 		}
 	}
+}
+
+std::string CRedmineViewerDlg::ReplaceIssueLink(std::string text)
+{
+	std::regex re(R"((^|\s)#([0-9]+)($|\s))");
+	std::string fmt = std::string(R"($1<a href=")") + (LPCSTR)CW2A(LocalHost) + R"(/$2/_issue.json"> #$2 </a>$3)";
+	std::string ret = std::regex_replace(text, re, fmt);
+	return ret;
 }
 
 std::string CRedmineViewerDlg::ConvertMdToHtml(std::string mdText)

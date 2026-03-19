@@ -9,4 +9,4 @@ const CString TrackersFileName(_T("\\trackers.json"));
 const CString IssuePrioritiesFileName(_T("\\issue_priorities.json"));
 
 const CString IssueTemplate(_T("/Issue.html"));
-const CString LocalHost(_T("https://redmineviewer.example/"));
+const CString LocalHost(_T("https://redmineviewer.example"));
