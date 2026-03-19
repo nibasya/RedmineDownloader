@@ -45,6 +45,9 @@
     <ClInclude Include="..\Shared\CommonConfig.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
+    <ClInclude Include="..\Shared\CommonFunc.h">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="RedmineDownloader.cpp">

@@ -8,6 +8,7 @@
 #include <sstream>
 #include "rptt.h"
 #include "../Shared/CommonConfig.h"
+#include "../Shared/CommonFunc.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -770,22 +771,14 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 		if(issue.has_field(L"attachments")) {	// 添付ファイルがあるか確認
 			auto attachments = issue[L"attachments"].as_array();
 			for (auto& attachment : attachments) {
+				CString fileID;
+				fileID.Format(L"%d", attachment[L"id"].as_integer()); // 添付ファイルのIDを取得
 				CString fileUrl = attachment[L"content_url"].as_string().c_str();	// 添付ファイルのURLを取得
 				CString fileUri = fileUrl.Mid(fileUrl.Find(L"/attachments/"));	// 添付ファイルのURIを取得
 				CString fileName = attachment[L"filename"].as_string().c_str();	// 添付ファイルの名前を取得
-				CString createdOn = attachment[L"created_on"].as_string().c_str();	// 添付ファイルの作成日時を取得
 				
-				// 作成日時をJSTに変換してファイル名に追加
-				COleDateTime dtUtc;
-				COleDateTime dtJst;
-				createdOn.Replace(L"T", L" ");
-				createdOn.Replace(L"Z", L"");
-				if (dtUtc.ParseDateTime(createdOn)) {
-					dtJst = dtUtc + COleDateTimeSpan(0, 9, 0, 0);	// UTCからJSTへの変換
-				}
-
 				CString savePath;
-				savePath.Format(_T("%s\\%d\\%s_%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)dtJst.Format(_T("%Y%m%d_%H%M%S")), (LPCTSTR)fileName);	// 添付ファイルの保存先のファイルパスを構築
+				savePath.Format(_T("%s\\%d\\%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)GetFileNameFromJson(fileName, fileID));	// 添付ファイルの保存先のファイルパスを構築
 				if (PathFileExists(savePath)) {	// すでに同名のファイルが存在する場合はスキップ
 					continue;
 				}
@@ -825,11 +818,11 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 		throw CWorkerError();
 	}
-	catch (const CWorkerError e) {
+	catch (...) {
 		if (issueSaveTo.GetLength() > 0) {
 			DeleteFile(issueSaveTo);	// エラーが発生した場合は保存したissue.jsonを削除する
 		}
-		throw e;
+		throw;
 	}
 }
 

@@ -196,6 +196,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="..\Shared\CommonConfig.h" />
+    <ClInclude Include="..\Shared\CommonFunc.h" />
     <ClInclude Include="CAboutDlg.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="GetLastErrorToString.h" />

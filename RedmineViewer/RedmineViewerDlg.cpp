@@ -11,10 +11,14 @@
 #include "GetLastErrorToString.h"
 #include <string>
 #include "../Shared/CommonConfig.h"
+#include <pathcch.h>
+#include "../Shared/CommonFunc.h"
 
 
 using namespace Microsoft::WRL;
 using namespace wil;
+
+#pragma comment (lib, "pathcch")
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -158,40 +162,56 @@ HRESULT CRedmineViewerDlg::WebView2CreateController(HRESULT result, ICoreWebView
 					return this->NewWindowRequestHandler(sender, args);
 				}).Get(), nullptr);
 
+		// Open local files with default app when a link is clicked
+		m_WebView->add_NavigationStarting(
+			Callback<ICoreWebView2NavigationStartingEventHandler>(
+				[this](ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+					return this->NavigationStartingHandler(sender, args);
+				}).Get(), nullptr);
+
 		// Load initial page
 		TCHAR szPath[MAX_PATH];
 		std::basic_string<TCHAR> tgtPath(L"file:///");
 		GetCurrentDirectory(MAX_PATH, szPath);
 		tgtPath.append(szPath);
 		std::replace(tgtPath.begin(), tgtPath.end(), L'\\', L'/');
-		tgtPath.append(L"/Issue.html");
+		tgtPath.append(IssueTemplate);
 		m_WebView->Navigate(tgtPath.c_str());
 	}
 	return S_OK;
 }
 
+bool CRedmineViewerDlg::WebView2GetLocalFilePathFromUri(const wil::unique_cotaskmem_string& uri, CString& outPath)
+{
+	// check if the URI is local file path
+	CString path(uri.get());
+	if (path.Left(8).CompareNoCase(_T("file:///")) == 0) {
+		path = path.Mid(8);	// remove "file:///"
+	}
+	else {
+		MessageBox(CString(_T("Only opening local file is allowed: ")) + path, _T("Error"), MB_ICONERROR);
+		return false;
+	}
+	const int maxPath = 32767 + 1;
+	HRESULT hr = UrlUnescapeW(path.GetBuffer(maxPath), NULL, NULL, URL_UNESCAPE_INPLACE | URL_UNESCAPE_AS_UTF8);
+	path.ReleaseBuffer();
+	if (!SUCCEEDED(hr)) {
+		MessageBox(CString(_T("Failed to get file path from URI: ")) + uri.get(), _T("Error"), MB_ICONERROR);
+		return false;
+	}
+	outPath = path;
+	return true;
+}
 
 HRESULT CRedmineViewerDlg::NewWindowRequestHandler(ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args)
 {
 	args->put_Handled(TRUE);	// block new window (inform the request is processed, and no need to create default new window)
 
-	// Get URI of the new window request (= file path of the dropped file)
-	wil::unique_cotaskmem_string uri;
+	CString path;
+	unique_cotaskmem_string uri;
 	args->get_Uri(&uri);
+	WebView2GetLocalFilePathFromUri(uri, path);
 
-	// convert URI to file path
-	const int maxPath = 32767 + 1;
-	CString path(uri.get());
-	HRESULT hr = UrlUnescapeW(path.GetBuffer(maxPath), NULL, NULL, URL_UNESCAPE_INPLACE | URL_UNESCAPE_AS_UTF8);
-	path.ReleaseBuffer();
-	if (!SUCCEEDED(hr)) {
-		MessageBox(CString(_T("Failed to get file path from URI: ")) + uri.get(), _T("Error"), MB_ICONERROR);
-		return S_OK;
-	}
-
-	if (path.Left(8).CompareNoCase(_T("file:///")) == 0){
-		path = path.Mid(8);	// remove "file:///"
-	}
 	// check if the path is folder. if folder is dropped, add \issue.json to the path
 	DWORD dwAttr = ::GetFileAttributes((LPCTSTR)path);
 	if ((dwAttr != INVALID_FILE_ATTRIBUTES) && (dwAttr & FILE_ATTRIBUTE_DIRECTORY)) {	// フォルダがドロップされた場合
@@ -211,6 +231,62 @@ HRESULT CRedmineViewerDlg::NewWindowRequestHandler(ICoreWebView2* sender, ICoreW
 
 	m_IssueFilePath = path;
 	ShowIssue();
+
+	return S_OK;
+}
+
+HRESULT CRedmineViewerDlg::NavigationStartingHandler(ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args)
+{
+	CString path;
+	unique_cotaskmem_string uri;
+	args->get_Uri(&uri);
+
+	// 内部生成テキストだった場合の処理
+	const CString internalText(_T("data:text/html;"));
+	path = uri.get();
+	if (path.Left(internalText.GetLength()) == internalText) {
+		return S_OK;
+	}
+
+	// ローカルファイルだった場合の処理
+	if (path.Left(LocalHost.GetLength()) == LocalHost) {
+		args->put_Cancel(TRUE);
+		UrlUnescape(path.GetBuffer(), NULL, NULL, URL_UNESCAPE_INPLACE | URL_UNESCAPE_AS_UTF8);
+		path = path.Mid(LocalHost.GetLength() - 1);	// leave last '/'
+		path.SetAt(0, _T('\\'));
+		const int MAXPATH = 32767 + 1;
+		CString localPath = m_IssueFilePath;
+		localPath.Replace(_T('/'), _T('\\'));
+		if (!SUCCEEDED(PathCchRemoveFileSpec(localPath.GetBuffer(MAXPATH), MAXPATH))) {
+			localPath.ReleaseBuffer();
+			MessageBox(CString(_T("PathCchRemoveFileSpec failed: ")) + localPath);
+			return S_OK;
+		}
+		localPath.ReleaseBuffer();
+		path = localPath + path;
+		if (!PathFileExists(path)) {
+			MessageBox(CString(_T("file does not exist: ")), path);
+			return S_OK;
+		}
+		HINSTANCE hInst = ::ShellExecute(NULL, _T("open"), path, NULL, NULL, SW_SHOWNORMAL);
+		if ((INT_PTR)hInst <= 32) {	// 戻り値が 32 より大きければ成功
+			MessageBox(CString(_T("Failed to open file: ")) + path);
+		}
+		return S_OK;
+	}
+	WebView2GetLocalFilePathFromUri(uri, path);
+
+	// issueファイルだった場合の処理
+	if (path.Right(12) == IssueFileName) {
+		return E_NOTIMPL;
+	}
+
+	// Issue.htmlだった場合の処理
+	if (path.Right(IssueTemplate.GetLength()) == IssueTemplate) {
+		return S_OK;
+	}
+
+	args->put_Cancel(TRUE);
 
 	return S_OK;
 }
@@ -400,7 +476,7 @@ void CRedmineViewerDlg::LoadCommonData()
 			if (member.contains("user")) {
 				auto user = member["user"];
 				if (user.contains("id") && user.contains("name")) {
-//					_RPTTN(_T("member ID:%d name: %s\n"), i["user"]["id"].get<int>(), (LPCTSTR)CA2W(i["user"]["name"].get<std::string>().c_str(), CP_UTF8));
+					//					_RPTTN(_T("member ID:%d name: %s\n"), i["user"]["id"].get<int>(), (LPCTSTR)CA2W(i["user"]["name"].get<std::string>().c_str(), CP_UTF8));
 					m_Members[user["id"].get<int>()] = user["name"].get<std::string>();
 				}
 			}
@@ -412,7 +488,7 @@ void CRedmineViewerDlg::LoadCommonData()
 	if (json.contains("issue_statuses")) {
 		for (auto status : json["issue_statuses"]) {
 			if (status.contains("id") && status.contains("name")) {
-//				_RPTTN(_T("status ID:%d name: %s\n"), status["id"].get<int>(), (LPCTSTR)CA2W(status["name"].get<std::string>().c_str(), CP_UTF8));
+				//				_RPTTN(_T("status ID:%d name: %s\n"), status["id"].get<int>(), (LPCTSTR)CA2W(status["name"].get<std::string>().c_str(), CP_UTF8));
 				m_Statuses[status["id"].get<int>()] = status["name"].get<std::string>();
 			}
 		}
@@ -465,11 +541,42 @@ bool CRedmineViewerDlg::ShowIssue()
 		MessageBox(L"This json file does not include issue");
 		return false;
 	}
+
+	// set localhost URL
+	json["_localhost"] = std::string(CW2A(LocalHost));
+
+	// process header
+	json["issue"]["description"] = ConvertMdToHtml(json["issue"]["description"].get<std::string>());
+
+	// process attachments
+	if (json["issue"].contains("attachments")) {
+		for (auto& attachment : json["issue"]["attachments"]) {
+			CString filename = (LPCWSTR)CA2W(attachment["filename"].get<std::string>().c_str(), CP_UTF8);
+			CString id;
+			id.Format(L"%d", attachment["id"].get<int>());
+			attachment["local_filename"] = std::string(CW2A((LPCWSTR)GetFileNameFromJson(filename, id), CP_UTF8));
+		}
+	}
+
+
+	// process notes
 	if (json["issue"].contains("journals")) {
 		for (auto& journal : json["issue"]["journals"]) {
 			// replace IDs to names
 			if (journal.contains("details")) {
 				for (auto& detail : journal["details"]) {
+					// process attachments
+					if (detail.contains("property") && detail["property"].get<std::string>() == "attachment") {
+						CString filename;
+						if (detail.contains("new_value") && detail["new_value"].is_string()) {
+							filename = (LPCWSTR)CA2W(detail["new_value"].get<std::string>().c_str(), CP_UTF8);
+						}
+						else if (detail.contains("old_value") && detail["old_value"].is_string()){
+							filename = (LPCWSTR)CA2W(detail["old_value"].get<std::string>().c_str(), CP_UTF8);
+						}
+						CString fileID = (LPCWSTR)CA2W(detail["name"].get<std::string>().c_str(), CP_UTF8);
+						detail["local_filename"] = std::string(CW2A((LPCWSTR)GetFileNameFromJson(filename, fileID), CP_UTF8));
+					}
 					if (!detail.contains("property") || !detail.contains("name")) {
 						continue;
 					}
@@ -479,15 +586,13 @@ bool CRedmineViewerDlg::ShowIssue()
 					ReplaceId(detail, "attr", "priority_id", m_Priorities);
 				}
 			}
+
 			// convert markdown in journal notes
 			if (journal.contains("notes")) {
 				journal["notes"] = ConvertMdToHtml(journal["notes"].get<std::string>());
 			}
 		}
 	}
-
-	// convert markdown in description
-	json["issue"]["description"] = ConvertMdToHtml(json["issue"]["description"].get<std::string>());
 
 	// JSON データを HTML テンプレートに埋め込む
 	try {
@@ -498,6 +603,7 @@ bool CRedmineViewerDlg::ShowIssue()
 		MessageBox(CString(L"Failed to render HTML: ") + CString(e.what()), L"Error", MB_ICONERROR);
 		return false;
 	}
+
 	return true;
 }
 

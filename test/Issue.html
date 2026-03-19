@@ -108,7 +108,7 @@
       <small>
         <b>Files</b><br>
 ## for attachment in issue.attachments
-        • <a href="#">{{ attachment.filename }}</a> ({{ round(attachment.filesize / 1024, 1) }} KB) &nbsp; <small>{{ attachment.author.name }}, {{ UtcToLocal(default(attachment.created_on, _NA), _NA) }}</small><br>
+        • <a href="{{ _localhost }}{{ attachment.local_filename }}">{{ attachment.filename }}</a> ({{ round(attachment.filesize / 1024, 1) }} KB) &nbsp; <small>{{ attachment.author.name }}, {{ UtcToLocal(default(attachment.created_on, _NA), _NA) }}</small><br>
 ## endfor
       </small>
     </td>
@@ -136,10 +136,10 @@
 
 ## if detail.property == "attachment"
 ## if existsIn(detail, "new_value")
-      • <b>File</b> <a href="#">{{ detail.new_value }}</a> added<br>
+      • <b>File</b> <a href="{{ _localhost }}{{ detail.local_filename }}">{{ detail.new_value }}</a> added<br>
 ## endif
 ## if existsIn(detail, "old_value")
-      • <b>File</b> deleted <del><a href="#">{{ detail.old_value }}</a></del><br>
+      • <b>File</b> deleted <del><a href="{{ _localhost }}{{ detail.local_filename }}">{{ detail.old_value }}</a></del><br>
 ## endif
 
 ## else
