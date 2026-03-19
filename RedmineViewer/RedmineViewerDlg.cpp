@@ -169,7 +169,17 @@ HRESULT CRedmineViewerDlg::WebView2CreateController(HRESULT result, ICoreWebView
 				[this](ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
 					return this->NavigationStartingHandler(sender, args);
 				}).Get(), nullptr);
-
+		// Update button states
+		m_WebView->add_NavigationCompleted(
+			Callback<ICoreWebView2NavigationCompletedEventHandler>(
+				[this](ICoreWebView2* webView, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+					BOOL flag = FALSE;
+					webView->get_CanGoBack(&flag);
+					this->m_CtrlButtonBack.EnableWindow(flag ? TRUE : FALSE);
+					webView->get_CanGoForward(&flag);
+					this->m_CtrlButtonForward.EnableWindow(flag ? TRUE : FALSE);
+					return S_OK;
+				}).Get(), nullptr);
 		// Load initial page
 		TCHAR szPath[MAX_PATH];
 		std::basic_string<TCHAR> tgtPath(L"file:///");
@@ -424,12 +434,26 @@ void CRedmineViewerDlg::OnBnClickedButtonLoad()
 
 void CRedmineViewerDlg::OnBnClickedButtonBack()
 {
-	// TODO: ここにコントロール通知ハンドラー コードを追加します。
+	BOOL canGoBack = FALSE;
+	if (!m_WebView) {
+		return;
+	}
+	m_WebView->get_CanGoBack(&canGoBack);
+	if (canGoBack) {
+		m_WebView->GoBack();
+	}
 }
 
 void CRedmineViewerDlg::OnBnClickedButtonForward()
 {
-	// TODO: ここにコントロール通知ハンドラー コードを追加します。
+	BOOL canGoForward = FALSE;
+	if (!m_WebView) {
+		return;
+	}
+	m_WebView->get_CanGoForward(&canGoForward);
+	if (canGoForward) {
+		m_WebView->GoForward();
+	}
 }
 
 void CRedmineViewerDlg::OnBnClickedButtonReload()
