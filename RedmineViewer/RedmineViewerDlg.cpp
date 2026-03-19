@@ -690,17 +690,15 @@ void CRedmineViewerDlg::LoadSetting()
 	CString section;
 	
 	section = L"WindowPosition";
-	CRect rc;
-	rc.top = pApp->GetProfileInt(section, L"top", -1);
-	rc.bottom = pApp->GetProfileInt(section, L"bottom", -1);
-	rc.left = pApp->GetProfileInt(section, L"left", -1);
-	rc.right = pApp->GetProfileInt(section, L"right", -1);
-	if (rc.top != -1) {
-		CRect rcWork;
-		SystemParametersInfo(SPI_GETWORKAREA, 0, &rcWork, 0);
-		if (rc.IntersectRect(rc, rcWork)) {
-			MoveWindow(&rc);
+	UINT nBytes = 0;
+	LPBYTE pData = NULL;
+	if (AfxGetApp()->GetProfileBinary(_T("Settings"), _T("WindowPlacement"), &pData, &nBytes))
+	{
+		if (nBytes == sizeof(WINDOWPLACEMENT))
+		{
+			SetWindowPlacement((WINDOWPLACEMENT*)pData);
 		}
+		delete[] pData;
 	}
 }
 
@@ -710,12 +708,12 @@ void CRedmineViewerDlg::SaveSetting()
 	CString section;
 
 	section = L"WindowPosition";
-	CRect rc;
-	GetWindowRect(&rc);
-	pApp->WriteProfileInt(section, L"top", rc.top);
-	pApp->WriteProfileInt(section, L"bottom", rc.bottom);
-	pApp->WriteProfileInt(section, L"left", rc.left);
-	pApp->WriteProfileInt(section, L"right", rc.right);
+	WINDOWPLACEMENT wp;
+	wp.length = sizeof(WINDOWPLACEMENT);
+	if (GetWindowPlacement(&wp))
+	{
+		AfxGetApp()->WriteProfileBinary(_T("Settings"), _T("WindowPlacement"), (LPBYTE)&wp, sizeof(WINDOWPLACEMENT));
+	}
 }
 
 std::string UtcToLocal(const inja::Arguments& args, LPSYSTEMTIME pLocal)
