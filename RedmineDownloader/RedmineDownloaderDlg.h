@@ -55,6 +55,8 @@ public:
 	CEdit m_CtrlEditNew;
 	CEdit m_CtrlEditUpdate;
 
+	CButton m_CtrlCheckUseCache;
+	CButton m_CtrlButtonClearCache;
 	CButton m_CtrlButtonExecute;
 	CButton m_CtrlButtonCancel;
 private:
@@ -125,10 +127,13 @@ private:
 	void LoadJson(web::json::value& jsonResponse, const CString& json);	// jsonを読み込む。
 	void GetIssue();		// 個別Issueを取得する。エラー時にCWorkerErrorを投げる。
 	void GetIssue(UINT issueID);		// 個別Issueを取得する。エラー時にCWorkerErrorを投げる。
+	void SaveIssueListCache();	// Extract ID and updated_on from issue_list.json, and save the array to issue_cache.json
 	CString PrepareLongPath(CString path);	// CString を受け取り、長いパス用に加工して返す関数
 	int GetPage(int count, int limit) {
 		return (count + limit - 1) / limit;
 	};
+public:
+	afx_msg void OnBnClickedButtonClearCache();
 };
 
 // ワーカースレッドからCRedmineDownloaderDlgへの通知用メッセージ

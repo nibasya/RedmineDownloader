@@ -7,6 +7,7 @@
 #include <string>
 #include <sstream>
 #include "rptt.h"
+#include "GetLastErrorToString.h"
 #include "../Shared/CommonConfig.h"
 #include "../Shared/CommonFunc.h"
 
@@ -38,6 +39,8 @@ void CRedmineDownloaderDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_EDIT_UPDATE, m_CtrlEditUpdate);
 	DDX_Control(pDX, IDC_BUTTON_CANCEL, m_CtrlButtonCancel);
 	DDX_Control(pDX, IDC_BUTTON_EXECUTE, m_CtrlButtonExecute);
+	DDX_Control(pDX, IDC_CHECK_USE_CACHE, m_CtrlCheckUseCache);
+	DDX_Control(pDX, IDC_BUTTON_CLEAR_CACHE, m_CtrlButtonClearCache);
 }
 
 BEGIN_MESSAGE_MAP(CRedmineDownloaderDlg, CDialogEx)
@@ -54,6 +57,7 @@ BEGIN_MESSAGE_MAP(CRedmineDownloaderDlg, CDialogEx)
 	ON_WM_GETMINMAXINFO()
 	ON_BN_CLICKED(IDC_BUTTON_SAVETO, &CRedmineDownloaderDlg::OnBnClickedButtonSaveto)
 	ON_BN_CLICKED(IDC_BUTTON_CANCEL, &CRedmineDownloaderDlg::OnBnClickedButtonCancel)
+	ON_BN_CLICKED(IDC_BUTTON_CLEAR_CACHE, &CRedmineDownloaderDlg::OnBnClickedButtonClearCache)
 END_MESSAGE_MAP()
 
 
@@ -121,6 +125,7 @@ void CRedmineDownloaderDlg::LoadSettings()
 	m_CtrlEditSaveTo.SetWindowText(theApp.GetProfileString(section, _T("SaveTo"), _T("")));
 	m_CtrlEditInterval.SetWindowText(theApp.GetProfileString(section, _T("Interval"), _T("0")));
 	m_CtrlCheckSaveVersionHistory.SetCheck(theApp.GetProfileInt(section, _T("SaveVersionHistory"), 0) ? BST_CHECKED : BST_UNCHECKED);
+	m_CtrlCheckUseCache.SetCheck(theApp.GetProfileInt(section, _T("UseCache"), 0) ? BST_CHECKED : BST_UNCHECKED);
 }
 
 void CRedmineDownloaderDlg::SaveSettings()
@@ -138,6 +143,7 @@ void CRedmineDownloaderDlg::SaveSettings()
 	m_CtrlEditInterval.GetWindowText(buff);
 	theApp.WriteProfileString(section, _T("Interval"), buff);
 	theApp.WriteProfileInt(section, _T("SaveVersionHistory"), m_CtrlCheckSaveVersionHistory.GetCheck() == BST_CHECKED ? 1 : 0);
+	theApp.WriteProfileInt(section, L"UseCache", m_CtrlCheckUseCache.GetCheck() == BST_CHECKED ? 1 : 0);
 }
 
 void CRedmineDownloaderDlg::EnableGui(bool fEnable)
@@ -640,6 +646,25 @@ void CRedmineDownloaderDlg::UpdateLists()
 	web::json::value issueListJson;
 	LoadJson(issueListJson, path);
 
+	// cacheからデータを読み込む
+	bool useCache = (m_CtrlCheckUseCache.GetCheck() == BST_CHECKED);
+	web::json::value issueCacheJson;
+	if (useCache) {
+		CString cacheFile = m_TargetFolder + RedmineDataFolder + IssueListCacheFileName;
+		if (PathFileExists(cacheFile)) {	// read cache only if it exists
+			LoadJson(issueCacheJson, cacheFile);
+		}
+	}
+	std::map<int, std::wstring> issueCache;
+	if (issueCacheJson.is_null()) {
+		useCache = false;
+	}
+	else {
+		for (auto& p : issueCacheJson.as_array()) {
+			issueCache[p[L"id"].as_integer()] = p[L"updated_on"].as_string();
+		}
+	}
+
 	// Issue一覧から新しいIssueと更新が必要なIssueを抽出する
 	m_NewIssue.clear();
 	m_UpdateIssue.clear();
@@ -648,30 +673,44 @@ void CRedmineDownloaderDlg::UpdateLists()
 	for (auto& issue : issueArray) {
 		UINT issueID = issue[L"id"].as_integer();
 
-		// 新規issueか確認する
-		CString issuePath;
-		issuePath.Format(_T("%s\\%d"), (LPCTSTR)m_TargetFolder, issueID);	// Issueの保存先のファイルパスを構築
-		DWORD dwAttr = ::GetFileAttributes((LPCTSTR)issuePath);
-		if (dwAttr == INVALID_FILE_ATTRIBUTES || !(dwAttr & FILE_ATTRIBUTE_DIRECTORY)) {
-			m_NewIssue.push_back(issueID);
-			continue;
-		}
+		if (useCache) {
+			// 新規issueか確認する
+			auto it = issueCache.find(issueID);
+			if (it == issueCache.end()) {
+				m_NewIssue.push_back(issueID);
+				continue;
+			}
 
-		// 更新が必要か確認する
-		web::json::value currentIssue;
-		CString issueJsonPath;
-		issueJsonPath.Format(_T("%s\\%d%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)IssueFileName);	// IssueのJSONファイルのパスを構築
-		// issue.jsonが存在しない場合は更新が必要とみなす
-		if (PathFileExists((LPCTSTR)issueJsonPath) == FALSE) {
-			m_UpdateIssue.push_back(issueID);
-			continue;
+			// 更新が必要か確認する
+			if (it->second != issue[L"updated_on"].as_string()) {
+				m_UpdateIssue.push_back(issueID);
+			}
 		}
-		// issue.jsonが存在する場合は、updated_onを比較して更新が必要か確認する
-		LoadJson(currentIssue, issueJsonPath);	// IssueのJSONファイルを読み込む
-		std::wstring updatedOnOld = currentIssue[L"issue"][L"updated_on"].as_string();
-		std::wstring updatedOnNew = issue[L"updated_on"].as_string();
-		if (updatedOnOld != updatedOnNew) {
-			m_UpdateIssue.push_back(issueID);
+		else {
+			CString issuePath;
+			issuePath.Format(_T("%s\\%d"), (LPCTSTR)m_TargetFolder, issueID);	// Issueの保存先のファイルパスを構築
+			DWORD dwAttr = ::GetFileAttributes((LPCTSTR)issuePath);
+			if (dwAttr == INVALID_FILE_ATTRIBUTES || !(dwAttr & FILE_ATTRIBUTE_DIRECTORY)) {
+				m_NewIssue.push_back(issueID);
+				continue;
+			}
+
+			// 更新が必要か確認する
+			web::json::value currentIssue;
+			CString issueJsonPath;
+			issueJsonPath.Format(_T("%s\\%d%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)IssueFileName);	// IssueのJSONファイルのパスを構築
+			// issue.jsonが存在しない場合は更新が必要とみなす
+			if (PathFileExists((LPCTSTR)issueJsonPath) == FALSE) {
+				m_UpdateIssue.push_back(issueID);
+				continue;
+			}
+			// issue.jsonが存在する場合は、updated_onを比較して更新が必要か確認する
+			LoadJson(currentIssue, issueJsonPath);	// IssueのJSONファイルを読み込む
+			std::wstring updatedOnOld = currentIssue[L"issue"][L"updated_on"].as_string();
+			std::wstring updatedOnNew = issue[L"updated_on"].as_string();
+			if (updatedOnOld != updatedOnNew) {
+				m_UpdateIssue.push_back(issueID);
+			}
 		}
 	}
 	m_WorkerNew = (int)m_NewIssue.size();
@@ -735,6 +774,7 @@ void CRedmineDownloaderDlg::GetIssue()
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 		GetIssue(id);
 	}
+	SaveIssueListCache();
 }
 
 void CRedmineDownloaderDlg::GetIssue(UINT issueID)
@@ -826,6 +866,32 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 	}
 }
 
+void CRedmineDownloaderDlg::SaveIssueListCache()
+{
+	// Issue一覧をファイルから読み込む
+	CString path = m_TargetFolder + IssueListFileName;	// 保存先のファイルパスを構築
+	web::json::value issueListJson, issueCache;
+	LoadJson(issueListJson, path);
+
+	int count = 0;
+	for (auto& issue : issueListJson[L"issues"].as_array()) {
+		issueCache[count][L"id"] = issue[L"id"];
+		issueCache[count][L"updated_on"] = issue[L"updated_on"];
+		count++;
+	}
+
+	// IssueのIDとupdated_onのペアをキャッシュに保存する
+	CString cacheFile = m_TargetFolder + RedmineDataFolder + IssueListCacheFileName;
+	utility::string_t cacheString = issueCache.serialize();
+	std::string utf8String = utility::conversions::to_utf8string(cacheString);
+	std::ofstream ofs(cacheFile);
+	if (ofs.is_open()) {
+		ofs << utf8String;
+		ofs.close();
+	}
+
+}
+
 LRESULT CRedmineDownloaderDlg::OnWorkerStopped(WPARAM wParam, LPARAM lParam)
 {
 	EnableGui(true);	// GUIを有効化
@@ -870,4 +936,17 @@ CString CRedmineDownloaderDlg::PrepareLongPath(CString path) {
 	}
 
 	return longPath;
+}
+
+void CRedmineDownloaderDlg::OnBnClickedButtonClearCache()
+{
+	CString targetFolder;
+	m_CtrlEditSaveTo.GetWindowText(targetFolder);
+	CString cacheFile = targetFolder + RedmineDataFolder + IssueListCacheFileName;
+	if (DeleteFile(cacheFile)) {
+		m_CtrlEditStatus.SetWindowTextW(L"Cleared cache");
+	}
+	else {
+		m_CtrlEditStatus.SetWindowTextW(CString(L"Failed to clear cache: ") + (LPCWSTR)GetLastErrorToString());
+	}
 }

@@ -8,5 +8,7 @@ const CString IssueStatusesFileName(_T("\\issue_statuses.json"));
 const CString TrackersFileName(_T("\\trackers.json"));
 const CString IssuePrioritiesFileName(_T("\\issue_priorities.json"));
 
+const CString IssueListCacheFileName(L"\\issue_Cache.json");
+
 const CString IssueTemplate(_T("/Issue.html"));
 const CString LocalHost(_T("https://redmineviewer.example"));
