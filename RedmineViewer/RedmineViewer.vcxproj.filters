@@ -45,10 +45,10 @@
     <ClInclude Include="RPTT.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
-    <ClInclude Include="..\Shared\CommonConfig.h">
+    <ClInclude Include="CIssueWnd.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
-    <ClInclude Include="..\Shared\CommonFunc.h">
+    <ClInclude Include="..\Shared\Common.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
   </ItemGroup>
@@ -66,6 +66,12 @@
       <Filter>ソース ファイル</Filter>
     </ClCompile>
     <ClCompile Include="GetLastErrorToString.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
+    <ClCompile Include="CIssueWnd.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Shared\Common.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
   </ItemGroup>

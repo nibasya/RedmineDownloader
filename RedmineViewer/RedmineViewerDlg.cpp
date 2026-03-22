@@ -9,17 +9,12 @@
 #include "CAboutDlg.h"
 #include "RPTT.h"
 #include "GetLastErrorToString.h"
+#include "CIssueWnd.h"
 #include <string>
 #include <pathcch.h>
-#include <regex>
-#include "../Shared/CommonConfig.h"
-#include "../Shared/CommonFunc.h"
 
+#include "../Shared/Common.h"
 
-using namespace Microsoft::WRL;
-using namespace wil;
-
-#pragma comment (lib, "pathcch")
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -29,7 +24,7 @@ using namespace wil;
 // CRedmineViewerDlg ダイアログ
 
 CRedmineViewerDlg::CRedmineViewerDlg(CWnd* pParent /*=nullptr*/)
-	: CDialogEx(IDD_REDMINEVIEWER_DIALOG, pParent)
+	: CDialogEx(IDD_REDMINEVIEWER_DIALOG, pParent), m_TabViewWndId(2026)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -40,22 +35,26 @@ void CRedmineViewerDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_BUTTON_LOAD, m_CtrlButtonLoad);
 	DDX_Control(pDX, IDC_BUTTON_BACK, m_CtrlButtonBack);
 	DDX_Control(pDX, IDC_BUTTON_FORWARD, m_CtrlButtonForward);
-	DDX_Control(pDX, IDC_WEBVEW2, m_CtrlWebView);
 	DDX_Control(pDX, IDC_BUTTON_RELOAD, m_CtrlButtonReload);
+	DDX_Control(pDX, IDC_BUTTON_RECACHE, m_CtrlButtonReCache);
+	DDX_Control(pDX, IDC_EDIT_FIND, m_CtrlEditFind);
+	DDX_Control(pDX, IDC_BUTTON_FIND, m_CtrlButtonFind);
 }
 
 BEGIN_MESSAGE_MAP(CRedmineViewerDlg, CDialogEx)
 	ON_WM_SYSCOMMAND()
 	ON_WM_PAINT()
 	ON_WM_QUERYDRAGICON()
-	ON_BN_CLICKED(IDC_BUTTON_LOAD, &CRedmineViewerDlg::OnBnClickedButtonLoad)
-	ON_BN_CLICKED(IDC_BUTTON_BACK, &CRedmineViewerDlg::OnBnClickedButtonBack)
-	ON_BN_CLICKED(IDC_BUTTON_FORWARD, &CRedmineViewerDlg::OnBnClickedButtonForward)
 	ON_WM_SIZE()
 	ON_WM_GETMINMAXINFO()
 	ON_WM_DESTROY()
 	ON_WM_DROPFILES()
+	ON_BN_CLICKED(IDC_BUTTON_LOAD, &CRedmineViewerDlg::OnBnClickedButtonLoad)
+	ON_BN_CLICKED(IDC_BUTTON_BACK, &CRedmineViewerDlg::OnBnClickedButtonBack)
+	ON_BN_CLICKED(IDC_BUTTON_FORWARD, &CRedmineViewerDlg::OnBnClickedButtonForward)
 	ON_BN_CLICKED(IDC_BUTTON_RELOAD, &CRedmineViewerDlg::OnBnClickedButtonReload)
+	ON_BN_CLICKED(IDC_BUTTON_RECACHE, &CRedmineViewerDlg::OnBnClickedButtonRecache)
+	ON_BN_CLICKED(IDC_BUTTON_FIND, &CRedmineViewerDlg::OnBnClickedButtonFind)
 END_MESSAGE_MAP()
 
 
@@ -91,15 +90,16 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 	SetIcon(m_hIcon, FALSE);		// 小さいアイコンの設定
 
 	// TODO: 初期化をここに追加します。
+	HRESULT hr;
+	GetWindowRect(&m_DefParentRect);
 	SetWindowText(CAboutDlg::GetAppVersion());	// バージョン情報の設定
 	LoadSetting();
 	SetupCallbacks();
 	LoadCommonData();
 	
 	// COM初期化
-	HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-	if (FAILED(hr)) {
-		MessageBox(L"COM initialization failed", L"Error", MB_ICONERROR);
+	if(!AfxOleInit()){
+		MessageBox(L"COM initialization failed", L"Error", MB_ICONSTOP);
 		return FALSE;
 	}
 
@@ -108,219 +108,54 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 	GetTempPath(MAX_PATH, tempPath);
 	m_WebViewTempFolder = CString(tempPath) + L"RedmineViewerWebView2";
 
-	// --- WebView2 初期化（WIL + WRL::Callback を利用） ---
-	// CreateCoreWebView2EnvironmentWithOptions の完了コールバックを設定
+	// WebView2Environmentの生成
 	hr = CreateCoreWebView2EnvironmentWithOptions(
 		nullptr, // browserExecutableFolder
 		m_WebViewTempFolder, // userDataFolder
 		nullptr, // environmentOptions (ICoreWebView2EnvironmentOptions* を渡す場合はここを変更)
-		Microsoft::WRL::Callback<
-			ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
+		Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
 			[this](HRESULT envResult, ICoreWebView2Environment* env) -> HRESULT
-		{
-			if (FAILED(envResult) || env == nullptr)
 			{
-				MessageBox(_T("Failed to create WebView2 environment"), _T("Error"), MB_ICONERROR);
-				return envResult;
-			}
+				if (FAILED(envResult) || env == nullptr)
+				{
+					MessageBox(L"Failed to create WebView2 environment", L"Error", MB_ICONSTOP);
+					return envResult;
+				}
+				m_pWebEnvironment = env;
+				return S_OK;
+			}).Get());
 
-			// Create controller and set up WebView2
-			env->CreateCoreWebView2Controller(this->GetSafeHwnd(),
-				Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-					[this](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
-						return this->WebView2CreateController(result, controller);
-					}).Get());
-			return S_OK;
-		}).Get());
-
-	// hr をチェックして必要ならログ出力（ここでは無視）
-	UNREFERENCED_PARAMETER(hr);
-	
-	return TRUE;  // フォーカスをコントロールに設定した場合を除き、TRUE を返します。
-}
-
-
-HRESULT CRedmineViewerDlg::WebView2CreateController(HRESULT result, ICoreWebView2Controller* controller)
-{
-	if (FAILED(result) || controller == nullptr) return result;
-
-	m_WebViewController = controller;
-	ICoreWebView2* rawWebView = nullptr;
-	if (SUCCEEDED(m_WebViewController->get_CoreWebView2(&rawWebView)) && rawWebView != nullptr) {
-		m_WebView = rawWebView;
-
-		// configure bounds of the WebView2 control to fit the dialog's client area
-		CRect rc;
-		m_CtrlWebView.GetWindowRect(&rc);
-		ScreenToClient(&rc);
-		RECT bounds = { rc.left, rc.top, rc.right, rc.bottom };
-		m_WebViewController->put_Bounds(bounds);
-
-		// prevent new window and get uri when file is drag&dropped
-		m_WebView->add_NewWindowRequested(
-			Callback<ICoreWebView2NewWindowRequestedEventHandler>(
-				[this](ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args) {
-					return this->NewWindowRequestHandler(sender, args);
-				}).Get(), nullptr);
-
-		// Open local files with default app when a link is clicked
-		m_WebView->add_NavigationStarting(
-			Callback<ICoreWebView2NavigationStartingEventHandler>(
-				[this](ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
-					return this->NavigationStartingHandler(sender, args);
-				}).Get(), nullptr);
-		// Update button states
-		m_WebView->add_NavigationCompleted(
-			Callback<ICoreWebView2NavigationCompletedEventHandler>(
-				[this](ICoreWebView2* webView, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
-					BOOL flag = FALSE;
-					webView->get_CanGoBack(&flag);
-					this->m_CtrlButtonBack.EnableWindow(flag ? TRUE : FALSE);
-					webView->get_CanGoForward(&flag);
-					this->m_CtrlButtonForward.EnableWindow(flag ? TRUE : FALSE);
-					return S_OK;
-				}).Get(), nullptr);
-		// Load initial page
-		TCHAR szPath[MAX_PATH];
-		std::basic_string<TCHAR> tgtPath(L"file:///");
-		GetCurrentDirectory(MAX_PATH, szPath);
-		tgtPath.append(szPath);
-		std::replace(tgtPath.begin(), tgtPath.end(), L'\\', L'/');
-		tgtPath.append(IssueTemplate);
-		m_WebView->Navigate(tgtPath.c_str());
-	}
-	return S_OK;
-}
-
-bool CRedmineViewerDlg::WebView2GetLocalFilePathFromUri(const wil::unique_cotaskmem_string& uri, CString& outPath)
-{
-	// check if the URI is local file path
-	CString path(uri.get());
-	if (path.Left(8).CompareNoCase(_T("file:///")) == 0) {
-		path = path.Mid(8);	// remove "file:///"
-	}
-	else {
-		MessageBox(CString(_T("Only opening local file is allowed: ")) + path, _T("Error"), MB_ICONERROR);
-		return false;
-	}
-	const int maxPath = 32767 + 1;
-	HRESULT hr = UrlUnescapeW(path.GetBuffer(maxPath), NULL, NULL, URL_UNESCAPE_INPLACE | URL_UNESCAPE_AS_UTF8);
-	path.ReleaseBuffer();
 	if (!SUCCEEDED(hr)) {
-		MessageBox(CString(_T("Failed to get file path from URI: ")) + uri.get(), _T("Error"), MB_ICONERROR);
+		MessageBox(L"Failed to create WebView2 environment", L"Error", MB_ICONSTOP);
 		return false;
 	}
-	outPath = path;
-	return true;
-}
 
-HRESULT CRedmineViewerDlg::NewWindowRequestHandler(ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args)
-{
-	args->put_Handled(TRUE);	// block new window (inform the request is processed, and no need to create default new window)
-
-	CString path;
-	unique_cotaskmem_string uri;
-	args->get_Uri(&uri);
-	WebView2GetLocalFilePathFromUri(uri, path);
-
-	// check if the path is folder. if folder is dropped, add \issue.json to the path
-	DWORD dwAttr = ::GetFileAttributes((LPCTSTR)path);
-	if ((dwAttr != INVALID_FILE_ATTRIBUTES) && (dwAttr & FILE_ATTRIBUTE_DIRECTORY)) {	// フォルダがドロップされた場合
-		path += _T("/_issue.json");
-	}
-	// check if the file is .json and show issue
-	if (path.Right(5).CompareNoCase(L".json") != 0) {
-		MessageBox(CString(_T("only .json file can be opened: ")) + path, _T("Invalid File"), MB_ICONERROR);
-		return S_OK;
-	}
-	// check if the file exists.
-	dwAttr = ::GetFileAttributes((LPCTSTR)path);
-	if (dwAttr == INVALID_FILE_ATTRIBUTES || (dwAttr & FILE_ATTRIBUTE_DIRECTORY)) {	// 指定ファイルがない場合
-		MessageBox(CString(_T("File not found: ")) + path, _T("File not found"), MB_ICONERROR);
-		return S_OK;
+	// CMFCTabCtrlの生成
+	CRect rect;
+	GetDlgItem(IDC_TAB_VIEWER)->GetWindowRect(&rect);
+	ScreenToClient(&rect);
+	if (!m_CtrlTabViewer.Create(CMFCTabCtrl::STYLE_3D, rect, this, IDC_TAB_VIEWER, CMFCTabCtrl::LOCATION_TOP, WS_VISIBLE | WS_CHILD)) {
+		MessageBox(L"Failed to create TabControl", L"Error", MB_ICONSTOP);
+		return FALSE;
 	}
 
-	m_IssueFilePath = path;
-	ShowIssue();
-
-	return S_OK;
-}
-
-HRESULT CRedmineViewerDlg::NavigationStartingHandler(ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args)
-{
-	CString path;
-	unique_cotaskmem_string uri;
-	args->get_Uri(&uri);
-
-	// 内部生成テキストだった場合の処理
-	const CString internalText(L"data:text/html;");
-	path = uri.get();
-	if (path.Left(internalText.GetLength()) == internalText) {
-		return S_OK;
-	}
-
-	// ローカルファイルだった場合の処理
-	if (path.Left(LocalHost.GetLength()) == LocalHost) {
-		args->put_Cancel(TRUE);
-		UrlUnescape(path.GetBuffer(), NULL, NULL, URL_UNESCAPE_INPLACE | URL_UNESCAPE_AS_UTF8);
-		path = path.Mid(LocalHost.GetLength() - 1);	// leave last '/'
-		path.SetAt(0, L'\\');
-		const int MAXPATH = 32767 + 1;
-		CString localPath = m_IssueFilePath;
-		localPath.Replace(L'/', L'\\');
-		path.Replace(L'/', L'\\');
-		if (!SUCCEEDED(PathCchRemoveFileSpec(localPath.GetBuffer(MAXPATH), MAXPATH))) {
-			localPath.ReleaseBuffer();
-			MessageBox(CString(L"PathCchRemoveFileSpec failed: ") + localPath);
-			return S_OK;
-		}
-		localPath.ReleaseBuffer();
-		path = localPath + L"\\.." + path;
-		if (!PathFileExists(path)) {
-			MessageBox(CString(L"file does not exist: "), path);
-			return S_OK;
-		}
-		if (path.Right(IssueFileName.GetLength()) == IssueFileName) {
-			m_IssueFilePath = path;
-			ShowIssue();
-			return S_OK;
-		}
-		HINSTANCE hInst = ::ShellExecute(NULL, L"open", path, NULL, NULL, SW_SHOWNORMAL);
-		if ((INT_PTR)hInst <= 32) {	// 戻り値が 32 より大きければ成功
-			MessageBox(CString(L"Failed to open file: ") + path);
-		}
-		return S_OK;
-	}
-	WebView2GetLocalFilePathFromUri(uri, path);
-
-	// issueファイルだった場合の処理
-	if (path.Right(IssueFileName.GetLength()) == IssueFileName) {
-		return E_NOTIMPL;
-	}
-
-	// Issue.htmlだった場合の処理
-	if (path.Right(IssueTemplate.GetLength()) == IssueTemplate) {
-		return S_OK;
-	}
-
-	args->put_Cancel(TRUE);
-
-	return S_OK;
+	CRect clientRect;
+	m_CtrlTabViewer.GetWndArea(clientRect);
+	AddTab();
+	return TRUE;  // フォーカスをコントロールに設定した場合を除き、TRUE を返します。
 }
 
 
 void CRedmineViewerDlg::OnDestroy()
 {
-	m_WebViewController.reset();
-	m_WebViewController = nullptr;
-	m_WebView.reset();
-	m_WebView = nullptr;
-
 	CDialogEx::OnDestroy();
 
-	// TODO: ここにメッセージ ハンドラー コードを追加します。
+	if (m_CtrlTabViewer.m_hWnd) {
+		m_CtrlTabViewer.RemoveAllTabs();
+	}
+
 	SaveSetting();
-	if (PathFileExists(m_WebViewTempFolder)) {	// WebView2のユーザーデータフォルダを削除
+	if (!m_WebViewTempFolder.IsEmpty() && PathFileExists(m_WebViewTempFolder)) {	// WebView2のユーザーデータフォルダを削除
 		SHFILEOPSTRUCT fileOp = { 0 };
 		fileOp.wFunc = FO_DELETE;
 		TCHAR from[MAX_PATH + 1];
@@ -329,7 +164,7 @@ void CRedmineViewerDlg::OnDestroy()
 		fileOp.pFrom = from;
 		fileOp.fFlags = FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
 		int foRet = 0;
-		for (int counter = 0; counter < 4; counter++) {	// フォルダがロックされている可能性があるため、最大4回(2 sec.)まで再試行}
+		for (int counter = 0; counter < 10; counter++) {	// フォルダがロックされている可能性があるため、最大10回(5 sec.)まで再試行}
 			foRet = SHFileOperation(&fileOp);	// this fuction cant't use GetLastError(), so check return value
 			if (foRet == 0) {
 				break;
@@ -343,7 +178,6 @@ void CRedmineViewerDlg::OnDestroy()
 			MessageBox(errorMsg, L"Error", MB_ICONERROR);
 		}
 	}
-	CoUninitialize();
 }
 
 
@@ -401,20 +235,23 @@ void CRedmineViewerDlg::OnSize(UINT nType, int cx, int cy)
 {
 	CDialogEx::OnSize(nType, cx, cy);
 
-	if (m_hWnd == nullptr || m_WebViewController == nullptr)
+	if (m_hWnd == NULL || m_CtrlTabViewer.m_hWnd == NULL)
 		return;
 
-	// ダイアログのクライアント領域に合わせて Bounds を設定
-	CRect rc;
-	m_CtrlWebView.GetWindowRect(&rc);
-	ScreenToClient(&rc);
-	RECT bounds = { rc.left, rc.top, rc.right, rc.bottom };
-	m_WebViewController->put_Bounds(bounds);
+	CRect rect;
+	
+	GetDlgItem(IDC_TAB_VIEWER)->GetWindowRect(&rect);
+	ScreenToClient(&rect);
+	m_CtrlTabViewer.MoveWindow(&rect);
 }
 
 void CRedmineViewerDlg::OnGetMinMaxInfo(MINMAXINFO* lpMMI)
 {
-	// TODO: ここにメッセージ ハンドラー コードを追加するか、既定の処理を呼び出します。
+	if (m_DefParentRect.Width() == 0)
+		return;	// 初回呼び出し時は何もしない
+
+	lpMMI->ptMinTrackSize = CPoint(m_DefParentRect.Width(), m_DefParentRect.Height());
+	lpMMI->ptMaxTrackSize = CPoint(lpMMI->ptMaxTrackSize.x, lpMMI->ptMaxTrackSize.y);
 
 	CDialogEx::OnGetMinMaxInfo(lpMMI);
 }
@@ -428,38 +265,39 @@ void CRedmineViewerDlg::OnBnClickedButtonLoad()
 		return;
 	}
 	CString filePath = dlg.GetPathName();
-	m_IssueFilePath = filePath;
-	ShowIssue();
+	AddTab(filePath);
 }
 
 void CRedmineViewerDlg::OnBnClickedButtonBack()
 {
 	BOOL canGoBack = FALSE;
-	if (!m_WebView) {
+	auto webView = dynamic_cast<CIssueWnd*>(m_CtrlTabViewer.GetActiveWnd())->m_WebView;
+	if (!webView) {
 		return;
 	}
-	m_WebView->get_CanGoBack(&canGoBack);
+	webView->get_CanGoBack(&canGoBack);
 	if (canGoBack) {
-		m_WebView->GoBack();
+		webView->GoBack();
 	}
 }
 
 void CRedmineViewerDlg::OnBnClickedButtonForward()
 {
 	BOOL canGoForward = FALSE;
-	if (!m_WebView) {
+	auto webView = dynamic_cast<CIssueWnd*>(m_CtrlTabViewer.GetActiveWnd())->m_WebView;
+	if (!webView) {
 		return;
 	}
-	m_WebView->get_CanGoForward(&canGoForward);
+	webView->get_CanGoForward(&canGoForward);
 	if (canGoForward) {
-		m_WebView->GoForward();
+		webView->GoForward();
 	}
 }
 
 void CRedmineViewerDlg::OnBnClickedButtonReload()
 {
 	LoadCommonData();
-	ShowIssue();
+	dynamic_cast<CIssueWnd*>(m_CtrlTabViewer.GetActiveWnd())->ShowIssue();
 }
 
 void CRedmineViewerDlg::OnDropFiles(HDROP hDropInfo)
@@ -476,8 +314,7 @@ void CRedmineViewerDlg::OnDropFiles(HDROP hDropInfo)
 				MessageBox(L"Please drop a JSON file.", L"Invalid File", MB_ICONERROR);
 				return;
 			}
-			m_IssueFilePath = filePath;
-			ShowIssue();
+			AddTab(filePath);
 		}
 	}
 
@@ -561,127 +398,31 @@ nlohmann::json CRedmineViewerDlg::ReadJson(const wchar_t* filePath)
 	}
 }
 
-bool CRedmineViewerDlg::ShowIssue()
+void CRedmineViewerDlg::AddTab()
 {
-	nlohmann::json json = ReadJson(m_IssueFilePath);
-	if (json.empty()) {
-		MessageBox(L"Failed to open the file.", L"Error", MB_ICONERROR);
-		return false;
-	}
-	if (!json.contains("issue")) {
-		MessageBox(L"This json file does not include issue");
-		return false;
-	}
-
-	// set localhost URL
-	CString localhostURL;
-	localhostURL.Format(L"%s/%d/", LocalHost, json["issue"]["id"].get<int>());
-	json["_localhost"] = std::string(CW2A(localhostURL));
-
-	// process header
-	json["issue"]["description"] = ReplaceIssueLink(json["issue"]["description"].get<std::string>());
-	json["issue"]["description"] = ConvertMdToHtml(json["issue"]["description"].get<std::string>());
-
-	// process attachments
-	if (json["issue"].contains("attachments")) {
-		for (auto& attachment : json["issue"]["attachments"]) {
-			CString filename = (LPCWSTR)CA2W(attachment["filename"].get<std::string>().c_str(), CP_UTF8);
-			CString id;
-			id.Format(L"%d", attachment["id"].get<int>());
-			attachment["local_filename"] = std::string(CW2A((LPCWSTR)GetFileNameFromJson(filename, id), CP_UTF8));
-		}
-	}
-
-	// process notes
-	if (json["issue"].contains("journals")) {
-		for (auto& journal : json["issue"]["journals"]) {
-			// replace IDs to names
-			if (journal.contains("details")) {
-				for (auto& detail : journal["details"]) {
-					// process attachments
-					if (detail.contains("property") && detail["property"].get<std::string>() == "attachment") {
-						CString filename;
-						if (detail.contains("new_value") && detail["new_value"].is_string()) {
-							filename = (LPCWSTR)CA2W(detail["new_value"].get<std::string>().c_str(), CP_UTF8);
-						}
-						else if (detail.contains("old_value") && detail["old_value"].is_string()){
-							filename = (LPCWSTR)CA2W(detail["old_value"].get<std::string>().c_str(), CP_UTF8);
-						}
-						CString fileID = (LPCWSTR)CA2W(detail["name"].get<std::string>().c_str(), CP_UTF8);
-						detail["local_filename"] = std::string(CW2A((LPCWSTR)GetFileNameFromJson(filename, fileID), CP_UTF8));
-					}
-					if (!detail.contains("property") || !detail.contains("name")) {
-						continue;
-					}
-					ReplaceId(detail, "attr", "status_id", m_Statuses);
-					ReplaceId(detail, "attr", "assigned_to_id", m_Members);
-					ReplaceId(detail, "attr", "tracker_id", m_Trackers);
-					ReplaceId(detail, "attr", "priority_id", m_Priorities);
-				}
-			}
-
-			// convert markdown in journal notes
-			if (journal.contains("notes")) {
-				journal["notes"] = ReplaceIssueLink(journal["notes"].get<std::string>());
-				journal["notes"] = ConvertMdToHtml(journal["notes"].get<std::string>());
-			}
-		}
-	}
-
-	// JSON データを HTML テンプレートに埋め込む
-	try {
-		std::string injaOutput = m_Env.render(m_IssueTemplate, json);
-		m_WebView->NavigateToString(CString(CA2W(injaOutput.c_str(), CP_UTF8)));
-	}
-	catch (const std::exception& e) {
-		MessageBox(CString(L"Failed to render HTML: ") + CString(e.what()), L"Error", MB_ICONERROR);
-		return false;
-	}
-
-	return true;
+	// Load initial page
+	TCHAR szPath[MAX_PATH];
+	std::basic_string<TCHAR> tgtPath(L"file:///");
+	GetCurrentDirectory(MAX_PATH, szPath);
+	tgtPath.append(szPath);
+	std::replace(tgtPath.begin(), tgtPath.end(), L'\\', L'/');
+	tgtPath.append(IssueTemplate);
+	AddTab(tgtPath.c_str());
 }
 
-void CRedmineViewerDlg::ReplaceId(nlohmann::json& json, std::string property, std::string name, std::map<int, std::string> data)
+void CRedmineViewerDlg::AddTab(CString file)
 {
-	if (json["property"].get<std::string>() == property && json["name"].get<std::string>() == name) {
-		if (json.contains("old_value") && data.contains(atoi(json["old_value"].get<std::string>().c_str()))) {
-			json["old_value"] = data[atoi(json["old_value"].get<std::string>().c_str())];
-		}
-		if (json.contains("new_value") && data.contains(atoi(json["new_value"].get<std::string>().c_str()))) {
-			json["new_value"] = data[atoi(json["new_value"].get<std::string>().c_str())];
-		}
+	// add tab
+	if (m_TabViewWndId > 32760) {	// avoid overflow of the ID
+		MessageBox(L"Cannot create tab anymore. Please restart the software.");
+		return;
 	}
-}
-
-std::string CRedmineViewerDlg::ReplaceIssueLink(std::string text)
-{
-	std::regex re(R"((^|\s)#([0-9]+)($|\s))");
-	std::string fmt = std::string(R"($1<a href=")") + (LPCSTR)CW2A(LocalHost) + R"(/$2/_issue.json"> #$2 </a>$3)";
-	std::string ret = std::regex_replace(text, re, fmt);
-	return ret;
-}
-
-std::string CRedmineViewerDlg::ConvertMdToHtml(std::string mdText)
-{
-	std::string html;
-
-	// GFM拡張（テーブル、タスクリスト、打ち消し線など）を有効化
-	unsigned int parser_flags = MD_FLAG_STRIKETHROUGH | MD_FLAG_COLLAPSEWHITESPACE | MD_FLAG_TABLES;
-	unsigned int render_flags = MD_HTML_FLAG_SKIP_UTF8_BOM;
-
-	int result = md_html(mdText.c_str(), (MD_SIZE)mdText.length(),
-		ConvertMdToHtmlSub, &html, parser_flags, render_flags);
-
-	if (result != 0) {	// failed to convert markdown to HTML
-		return mdText;
-	}
-	return html;
-}
-
-void CRedmineViewerDlg::ConvertMdToHtmlSub(const MD_CHAR* text, MD_SIZE size, void* userData)
-{
-	std::string* out = static_cast<std::string*>(userData);
-	out->append(text, size);
+	CIssueWnd* pNewWnd = new CIssueWnd(this);
+	pNewWnd->CreateWebView2(m_TabViewWndId, file);
+	m_TabViewWndId++;
+	m_CtrlTabViewer.AddTab(pNewWnd, L"");
+	m_CtrlTabViewer.SetActiveTab(m_CtrlTabViewer.GetTabsNum() - 1);
+	m_CtrlTabViewer.EnableActiveTabCloseButton(TRUE);
 }
 
 void CRedmineViewerDlg::LoadSetting()
@@ -858,3 +599,20 @@ inja::json CallbackUtcToYMD(inja::Arguments& args)
 	return std::string((LPCSTR)out);
 }
 
+
+void CRedmineViewerDlg::OnBnClickedButtonRecache()
+{
+	// TODO: ここにコントロール通知ハンドラー コードを追加します。
+}
+
+void CRedmineViewerDlg::OnBnClickedButtonFind()
+{
+	// TODO: ここにコントロール通知ハンドラー コードを追加します。
+}
+
+void CRedmineViewerDlg::PostNcDestroy()
+{
+	m_pWebEnvironment = nullptr;
+
+	CDialogEx::PostNcDestroy();
+}

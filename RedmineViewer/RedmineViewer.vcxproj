@@ -201,9 +201,9 @@
     </ResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\Shared\CommonConfig.h" />
-    <ClInclude Include="..\Shared\CommonFunc.h" />
+    <ClInclude Include="..\Shared\Common.h" />
     <ClInclude Include="CAboutDlg.h" />
+    <ClInclude Include="CIssueWnd.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="GetLastErrorToString.h" />
     <ClInclude Include="inja.hpp" />
@@ -215,7 +215,12 @@
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\Shared\Common.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="CAboutDlg.cpp" />
+    <ClCompile Include="CIssueWnd.cpp" />
     <ClCompile Include="GetLastErrorToString.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>

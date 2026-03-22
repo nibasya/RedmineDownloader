@@ -23,8 +23,8 @@ END_MESSAGE_MAP()
 
 CRedmineViewerApp::CRedmineViewerApp()
 {
-	// 再起動マネージャーをサポートします
-	m_dwRestartManagerSupportFlags = AFX_RESTART_MANAGER_SUPPORT_RESTART;
+	// 再起動マネージャーをサポートしません
+	// m_dwRestartManagerSupportFlags = AFX_RESTART_MANAGER_SUPPORT_RESTART;
 
 	// TODO: この位置に構築用コードを追加してください。
 	// ここに InitInstance 中の重要な初期化処理をすべて記述してください。
@@ -110,4 +110,3 @@ BOOL CRedmineViewerApp::InitInstance()
 	//  アプリケーションを終了するために FALSE を返してください。
 	return FALSE;
 }
-

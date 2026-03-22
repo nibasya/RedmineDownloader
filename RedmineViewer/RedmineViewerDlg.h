@@ -32,21 +32,14 @@ protected:
 	DECLARE_MESSAGE_MAP()
 
 public:
-	wil::com_ptr<ICoreWebView2Controller> m_WebViewController;
-	wil::com_ptr<ICoreWebView2> m_WebView;
-	CString m_WebViewTempFolder;
-
-	HRESULT WebView2CreateController(HRESULT result, ICoreWebView2Controller* controller);
-	bool WebView2GetLocalFilePathFromUri(const wil::unique_cotaskmem_string& uri, CString& outPath);
-	HRESULT NewWindowRequestHandler(ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args);	// 新規ウィンドウのリクエストを完全にブロックしつつuriを取得するイベントハンドラー
-	HRESULT NavigationStartingHandler(ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args);	// リンククリック時のイベントハンドラー（ローカルファイルへのリンクを既定のアプリで開くため）
-
-public:
 	CButton m_CtrlButtonLoad;
 	CButton m_CtrlButtonBack;
 	CButton m_CtrlButtonForward;
-	CStatic m_CtrlWebView;
 	CButton m_CtrlButtonReload;
+	CButton m_CtrlButtonReCache;
+	CEdit m_CtrlEditFind;
+	CButton m_CtrlButtonFind;
+	CMFCTabCtrl m_CtrlTabViewer;
 	afx_msg void OnBnClickedButtonLoad();
 	afx_msg void OnBnClickedButtonBack();
 	afx_msg void OnBnClickedButtonForward();
@@ -55,9 +48,15 @@ public:
 	afx_msg void OnGetMinMaxInfo(MINMAXINFO* lpMMI);
 	afx_msg void OnDestroy();
 	afx_msg void OnDropFiles(HDROP hDropInfo);
+	afx_msg void OnBnClickedButtonRecache();
+	afx_msg void OnBnClickedButtonFind();
 
-private:
-	CString m_IssueFilePath;
+public:
+	CString m_WebViewTempFolder;	// WebView2の一時フォルダの場所
+	wil::com_ptr<ICoreWebView2Environment> m_pWebEnvironment;	// environmentはアプリケーション内で使いまわす
+	CRect m_DefParentRect;	// ウィンドウの最小サイズ
+	int m_TabViewWndId;	// nex ID of created window; never decreases
+
 	inja::Template m_IssueTemplate;
 	inja::Environment m_Env;
 	std::map<int, std::string> m_Members;
@@ -67,14 +66,14 @@ private:
 
 	void LoadCommonData();
 	nlohmann::json ReadJson(const wchar_t* filePath);
-	bool ShowIssue();
-	void ReplaceId(nlohmann::json& json, std::string property, std::string name, std::map<int, std::string> data);
-	std::string ReplaceIssueLink(std::string text);
-	std::string ConvertMdToHtml(std::string mdText);		// Converts Markdown text into HTML body
-	static void ConvertMdToHtmlSub(const MD_CHAR* text, MD_SIZE size, void* userData);	// callback for ConvertMDToHtml
+	void AddTab();
+	void AddTab(CString file);
+
+private:
 	void LoadSetting();
 	void SaveSetting();
 	void SetupCallbacks();
+	virtual void PostNcDestroy();
 };
 
 // inja callbacks

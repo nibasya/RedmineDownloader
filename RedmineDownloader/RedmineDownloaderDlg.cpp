@@ -8,8 +8,7 @@
 #include <sstream>
 #include "rptt.h"
 #include "GetLastErrorToString.h"
-#include "../Shared/CommonConfig.h"
-#include "../Shared/CommonFunc.h"
+#include "../Shared/Common.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW

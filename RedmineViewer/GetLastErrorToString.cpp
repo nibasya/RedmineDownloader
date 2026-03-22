@@ -1,6 +1,11 @@
-	#include "pch.h"	// enable for visual studio version >= 2019
-	// #include "stdafx.h"	// enable for visual studio version < 2019
+#include "pch.h"	// enable for visual studio version >= 2019
+// #include "stdafx.h"	// enable for visual studio version < 2019
 #include "GetLastErrorToString.h"
+
+#ifdef _DEBUG
+#define new DEBUG_NEW
+#endif
+
 
 GetLastErrorToString::operator CString()
 {

@@ -54,7 +54,7 @@
         </tr>
         <tr>
           <td><small>Assignee:</small></td>
-          <td><small>{{ issue.assigned_to.name }}</small></td>
+          <td><small>{{ default(issue.assigned_to.name, "-") }}</small></td>
         </tr>
         <tr>
           <td><small>Category:</small></td>

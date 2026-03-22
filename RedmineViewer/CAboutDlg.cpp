@@ -11,6 +11,11 @@
 
 #pragma comment(lib, "version.lib")
 
+#ifdef _DEBUG
+#define new DEBUG_NEW
+#endif
+
+
 // CAboutDlg ダイアログ
 
 IMPLEMENT_DYNAMIC(CAboutDlg, CDialogEx)
