@@ -152,6 +152,9 @@ void CRedmineDownloaderDlg::EnableGui(bool fEnable)
 	m_CtrlEditProjectId.EnableWindow(fEnable);
 	m_CtrlEditSaveTo.EnableWindow(fEnable);
 	m_CtrlEditInterval.EnableWindow(fEnable);
+	m_CtrlCheckSaveVersionHistory.EnableWindow(fEnable);
+	m_CtrlCheckUseCache.EnableWindow(fEnable);
+	m_CtrlButtonClearCache.EnableWindow(fEnable);
 	m_CtrlButtonSaveTo.EnableWindow(fEnable);
 	m_CtrlButtonExecute.EnableWindow(fEnable);
 	m_CtrlButtonCancel.EnableWindow(!fEnable);
@@ -815,11 +818,16 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 				CString fileUrl = attachment[L"content_url"].as_string().c_str();	// 添付ファイルのURLを取得
 				CString fileUri = fileUrl.Mid(fileUrl.Find(L"/attachments/"));	// 添付ファイルのURIを取得
 				CString fileName = attachment[L"filename"].as_string().c_str();	// 添付ファイルの名前を取得
-				
+				unsigned long long fileSize = attachment[L"filesize"].as_number().to_uint64(); // 添付ファイルのサイズを取得
+
 				CString savePath;
 				savePath.Format(_T("%s\\%d\\%s"), (LPCTSTR)m_TargetFolder, issueID, (LPCTSTR)GetFileNameFromJson(fileName, fileID));	// 添付ファイルの保存先のファイルパスを構築
-				if (PathFileExists(savePath)) {	// すでに同名のファイルが存在する場合はスキップ
-					continue;
+				CFileFind finder;
+				if (finder.FindFile(savePath)) {
+					finder.FindNextFile();
+					if (finder.GetLength() == fileSize) {	// すでに同名・同サイズのファイルが存在する場合はスキップ
+						continue;
+					}
 				}
 
 				m_WorkerStatus.Format(_T("%s downloading issue: %d file: %s"), (LPCTSTR)origMsg, issueID, (LPCTSTR)fileName);
