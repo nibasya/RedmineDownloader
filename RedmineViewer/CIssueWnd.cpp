@@ -299,7 +299,7 @@ bool CIssueWnd::ShowIssue()
 
 	// JSON データを HTML テンプレートに埋め込む
 	try {
-		std::string injaOutput = m_pParent->m_Env.render(m_pParent->m_IssueTemplate, json);
+		std::string injaOutput = m_pParent->m_InjaEnv.render(m_pParent->m_IssueTemplate, json);
 		m_WebView->NavigateToString(CString(CA2W(injaOutput.c_str(), CP_UTF8)));
 	}
 	catch (const std::exception& e) {

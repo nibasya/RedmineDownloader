@@ -12,7 +12,8 @@
 #include "CIssueWnd.h"
 #include <string>
 #include <pathcch.h>
-
+#include <future>
+#include <atomic>
 #include "../Shared/Common.h"
 
 
@@ -96,6 +97,7 @@ BOOL CRedmineViewerDlg::OnInitDialog()
 	LoadSetting();
 	SetupCallbacks();
 	LoadCommonData();
+	LoadIssues();
 	
 	// COM初期化
 	if(!AfxOleInit()){
@@ -328,7 +330,7 @@ void CRedmineViewerDlg::OnDropFiles(HDROP hDropInfo)
 void CRedmineViewerDlg::LoadCommonData()
 {
 	try {
-		m_IssueTemplate = m_Env.parse_template(L"Issue.html");
+		m_IssueTemplate = m_InjaEnv.parse_template(L"Issue.html");
 	}
 	catch (const inja::InjaError& e) {	// injaの例外をcatchする
 		std::ostringstream oss;
@@ -429,11 +431,41 @@ void CRedmineViewerDlg::AddTab(CString file)
 	m_CtrlTabViewer.EnableActiveTabCloseButton(TRUE);
 }
 
+void CRedmineViewerDlg::SearchIssueList(std::map<int, std::vector<std::string>>& result, const nlohmann::json& issueList, const std::string& query)
+{
+	for (auto issue : issueList["issues"]) {
+		std::vector<std::string> found;
+		SearchIssue(found, issue, query);
+		if (found.size()) {
+			result[issue["id"].get<int>()] = found;
+		}
+	}
+}
+
+void CRedmineViewerDlg::SearchIssue(std::vector<std::string>& result, const nlohmann::json& issue, const std::string& query, const std::string& path)
+{
+	if (issue.is_object()) {
+		for (auto& [key, value] : issue.items()) {
+			SearchIssue(result, value, query, path + "/" + key);
+		}
+	}
+	else if (issue.is_array()) {
+		for (size_t i = 0; i < issue.size(); ++i) {
+			SearchIssue(result, issue[i], query, path + "[" + std::to_string(i) + "]");
+		}
+	}
+	else if (issue.is_string()) {
+		if (issue.get<std::string>().find(query) != std::string::npos) {
+			result.push_back(path);
+		}
+	}
+}
+
 void CRedmineViewerDlg::LoadSetting()
 {
 	CWinApp* pApp = AfxGetApp();
 	CString section;
-	
+
 	section = L"WindowPosition";
 	UINT nBytes = 0;
 	LPBYTE pData = NULL;
@@ -461,6 +493,64 @@ void CRedmineViewerDlg::SaveSetting()
 	}
 }
 
+void CRedmineViewerDlg::LoadIssues()
+{
+	CString listFileName = CString(L".") + IssueListFileName;
+	if (!PathFileExists(listFileName)) {
+		MessageBox(L"Failed to find issue list", L"Failed", MB_ICONINFORMATION);
+		return;
+	}
+	m_Issues.clear();
+	nlohmann::json issueList = ReadJson(listFileName);
+
+
+	CDialog progDlg;
+	progDlg.Create(IDD_ISSUE_LOAD_PROGRESS, this);
+	progDlg.ShowWindow(SW_SHOW);
+	auto& progCtrl = *(CProgressCtrl*)progDlg.GetDlgItem(IDC_PROGRESS);
+	progCtrl.SetRange(0, (int)issueList["issues"].size());
+
+	std::atomic<bool> isCancelled{ false };
+	std::atomic<int> progress{ 0 };
+
+	// worker loop
+	auto future = std::async(std::launch::async, [&]() {
+		for (auto& item : issueList["issues"]) {
+			if (isCancelled) {
+				return;
+			}
+			progress++;
+			int id = item["id"].get<int>();
+			CString file;
+			file.Format(L"%d%s", id, (LPCWSTR)IssueFileName);
+			if (!PathFileExists(file)) {
+				if (MessageBox(L"File %s is missing. Preferred to execute RedmineDownloader. Continue?", L"Error", MB_OKCANCEL) == IDCANCEL) {
+					return;
+				}
+				continue;
+			}
+			nlohmann::json issue = ReadJson(file);
+			m_Issues["issues"].push_back(issue["issue"]);
+		}
+		});
+
+	// wait for load completion
+	while (future.wait_for(std::chrono::milliseconds(100)) != std::future_status::ready) {
+		_RPTTN(L"%d\n", (int)progress);
+		progCtrl.SetPos(progress + 1 );
+		progCtrl.SetPos(progress);
+		if (!progCtrl.IsWindowVisible()) {
+			isCancelled = true;
+			break;
+		}
+		MSG msg;
+		while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+		}
+	}
+}
+
 std::string UtcToLocal(const inja::Arguments& args, LPSYSTEMTIME pLocal)
 {
 	std::string in = args.at(0)->get<std::string>();
@@ -484,11 +574,11 @@ std::string UtcToLocal(const inja::Arguments& args, LPSYSTEMTIME pLocal)
 
 void CRedmineViewerDlg::SetupCallbacks()
 {
-	m_Env.add_callback("UtcToLocal", 2, CallbackUtcToLocal);
+	m_InjaEnv.add_callback("UtcToLocal", 2, CallbackUtcToLocal);
 
-	m_Env.add_callback("UtcToAgo", 2, CallbackUtcToAgo);
+	m_InjaEnv.add_callback("UtcToAgo", 2, CallbackUtcToAgo);
 
-	m_Env.add_callback("UtcToYMD", 2, CallbackUtcToYMD);
+	m_InjaEnv.add_callback("UtcToYMD", 2, CallbackUtcToYMD);
 }
 
 bool CallbackIs1stArgString(const inja::Arguments& args, inja::json& errText)
@@ -611,7 +701,10 @@ void CRedmineViewerDlg::OnBnClickedButtonRecache()
 
 void CRedmineViewerDlg::OnBnClickedButtonFind()
 {
-	// TODO: ここにコントロール通知ハンドラー コードを追加します。
+	CString target;
+	m_CtrlEditFind.GetWindowText(target);
+	std::map<int, std::vector<std::string>> result;
+	SearchIssueList(result, m_Issues, (LPCSTR)CW2A((LPCWSTR)target));
 }
 
 void CRedmineViewerDlg::PostNcDestroy()

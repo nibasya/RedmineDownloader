@@ -57,22 +57,29 @@ public:
 	CRect m_DefParentRect;	// ウィンドウの最小サイズ
 	int m_TabViewWndId;	// nex ID of created window; never decreases
 
-	inja::Template m_IssueTemplate;
-	inja::Environment m_Env;
+	inja::json m_Issues;	// issues data
+
+	// common JSON data for issue
+	inja::Template m_IssueTemplate;	// holds Issue.html data
+	inja::Environment m_InjaEnv;	// holds callback functions
 	std::map<int, std::string> m_Members;
 	std::map<int, std::string> m_Statuses;
 	std::map<int, std::string> m_Trackers;
 	std::map<int, std::string> m_Priorities;
 
-	void LoadCommonData();
 	nlohmann::json ReadJson(const wchar_t* filePath);
 	void AddTab();
 	void AddTab(CString file);
 
 private:
+	void LoadCommonData();
 	void LoadSetting();
 	void SaveSetting();
+	void LoadIssues();
 	void SetupCallbacks();
+
+	void SearchIssueList(std::map<int, std::vector<std::string>>& result, const nlohmann::json& issueList, const std::string& query);
+	void SearchIssue(std::vector<std::string>& result, const nlohmann::json& issue, const std::string& query, const std::string& path = "");
 	virtual void PostNcDestroy();
 };
 
