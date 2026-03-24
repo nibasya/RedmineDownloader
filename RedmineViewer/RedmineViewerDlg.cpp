@@ -302,15 +302,19 @@ void CRedmineViewerDlg::OnBnClickedButtonReload()
 
 void CRedmineViewerDlg::OnDropFiles(HDROP hDropInfo)
 {
-	// ドロップされたファイルの数を取得
 	UINT fileCount = DragQueryFile(hDropInfo, 0xFFFFFFFF, nullptr, 0);
 	if (fileCount > 0) {
-		// 最初のファイルのパスを取得
-		wchar_t filePath[MAX_PATH];
-		if (DragQueryFile(hDropInfo, 0, filePath, MAX_PATH) > 0) {
+		UINT maxPath = DragQueryFile(hDropInfo, 0, NULL, MAX_PATH) + 1;	// 最初のファイルのパスを取得
+		CString filePath;
+		if (DragQueryFile(hDropInfo, 0, filePath.GetBuffer(maxPath), maxPath) > 0) {
+			filePath.ReleaseBuffer();
+			// check if the path is folder. if folder is dropped, add \issue.json to the path
+			DWORD dwAttr = ::GetFileAttributes((LPCTSTR)filePath);
+			if ((dwAttr != INVALID_FILE_ATTRIBUTES) && (dwAttr & FILE_ATTRIBUTE_DIRECTORY)) {	// フォルダがドロップされた場合
+				filePath += IssueFileName;
+			}
 			// 拡張子が .json かどうかをチェック
-			CString strFilePath(filePath);
-			if (strFilePath.Right(5).CompareNoCase(L".json") != 0) {
+			if (filePath.Right(5).CompareNoCase(L".json") != 0) {
 				MessageBox(L"Please drop a JSON file.", L"Invalid File", MB_ICONERROR);
 				return;
 			}
