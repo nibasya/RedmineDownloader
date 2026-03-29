@@ -98,11 +98,11 @@ BEGIN
     PUSHBUTTON      "Load",IDC_BUTTON_LOAD,2,0,50,14
     PUSHBUTTON      "Back",IDC_BUTTON_BACK,55,0,50,14,WS_DISABLED
     PUSHBUTTON      "Forward",IDC_BUTTON_FORWARD,108,0,50,14,WS_DISABLED
-    PUSHBUTTON      "Reload",IDC_BUTTON_RELOAD,161,0,50,14
-    PUSHBUTTON      "ReCache",IDC_BUTTON_RECACHE,215,0,50,14,WS_DISABLED
+    PUSHBUTTON      "ReloadHTML",IDC_BUTTON_RELOAD,161,0,50,14
+    PUSHBUTTON      "ReCache",IDC_BUTTON_RECACHE,215,0,50,14
     LTEXT           "Search",IDC_STATIC,2,28,32,8,0,WS_EX_RIGHT
     EDITTEXT        IDC_EDIT_FIND,44,25,183,14,ES_AUTOHSCROLL
-    PUSHBUTTON      "&Find",IDC_BUTTON_FIND,228,25,36,14
+    DEFPUSHBUTTON   "&Find",IDC_BUTTON_FIND,228,25,36,14
     CONTROL         "",IDC_TAB_VIEWER,"SysTabControl32",NOT WS_VISIBLE,2,48,263,143
 END
 
@@ -122,8 +122,8 @@ END
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,2,0,1
- PRODUCTVERSION 1,2,0,1
+ FILEVERSION 2,0,0,1
+ PRODUCTVERSION 2,0,0,1
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -140,12 +140,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "donadona"
             VALUE "FileDescription", "RedmineViewer"
-            VALUE "FileVersion", "1.2.0.1"
+            VALUE "FileVersion", "2.0.0.1"
             VALUE "InternalName", "RedmineViewer.exe"
             VALUE "LegalCopyright", "(C) donadona.  All rights reserved."
             VALUE "OriginalFilename", "RedmineViewer.exe"
             VALUE "ProductName", "RedmineViewer"
-            VALUE "ProductVersion", "1.2.0.1"
+            VALUE "ProductVersion", "2.0.0.1"
         END
     END
     BLOCK "VarFileInfo"

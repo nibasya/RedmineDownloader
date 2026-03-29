@@ -613,7 +613,7 @@ void CRedmineDownloaderDlg::GetIssueList()
 		// Issue Listを保存する
 		m_WorkerStatus = _T("Issue一覧の保存");
 		::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
-		CString saveTo(m_TargetFolder + IssueListFileName);	// 保存先のファイルパスを構築
+		CString saveTo(m_TargetFolder + RedmineDataFolder + IssueListFileName);	// 保存先のファイルパスを構築
 		FILE* pFile = NULL;
 		errno_t err = _wfopen_s(&pFile, saveTo, L"w");
 		if (err != 0 || pFile == NULL) {
@@ -644,7 +644,7 @@ void CRedmineDownloaderDlg::UpdateLists()
 	::PostMessage(m_hWnd, WM_WORKER_UPDATE_STATUS, 0, 0);
 
 	// Issue一覧をファイルから読み込む
-	CString path = m_TargetFolder + IssueListFileName;	// 保存先のファイルパスを構築
+	CString path = m_TargetFolder + RedmineDataFolder + IssueListFileName;	// 保存先のファイルパスを構築
 	web::json::value issueListJson;
 	LoadJson(issueListJson, path);
 
@@ -876,7 +876,7 @@ void CRedmineDownloaderDlg::GetIssue(UINT issueID)
 void CRedmineDownloaderDlg::SaveIssueListCache()
 {
 	// Issue一覧をファイルから読み込む
-	CString path = m_TargetFolder + IssueListFileName;	// 保存先のファイルパスを構築
+	CString path = m_TargetFolder + RedmineDataFolder + IssueListFileName;	// 保存先のファイルパスを構築
 	web::json::value issueListJson, issueCache;
 	LoadJson(issueListJson, path);
 

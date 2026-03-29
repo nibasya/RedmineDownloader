@@ -26,6 +26,7 @@ public:
 	bool WebView2GetLocalFilePathFromUri(const wil::unique_cotaskmem_string& uri, CString& outPath);
 	HRESULT NewWindowRequestHandler(ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args);	// 新規ウィンドウのリクエストを完全にブロックしつつuriを取得するイベントハンドラー
 	HRESULT NavigationStartingHandler(ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args);	// リンククリック時のイベントハンドラー（ローカルファイルへのリンクを既定のアプリで開くため）
+	void ShowMessageBox(const CString& msg, const CString& title = CString(L""));
 
 	bool ShowIssue();
 	CString SetTabTitle(CString filePath);

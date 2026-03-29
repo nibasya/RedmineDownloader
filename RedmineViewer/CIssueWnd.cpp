@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "CIssueWnd.h"
+#include "RedmineViewer.h"
 #include "RedmineViewerDlg.h"
 #include "RPTT.h"
 #include "../Shared/Common.h"
@@ -56,7 +57,7 @@ bool CIssueWnd::CreateWebView2(UINT nID, LPCWSTR url)
 			}).Get());
 	if (!SUCCEEDED(hr)) {
 		UNREFERENCED_PARAMETER(hr);
-		MessageBox(L"Failed to create WebView2Control", L"WebView2Error", MB_ICONSTOP);
+		ShowMessageBox(L"Failed to create WebView2Control", L"WebView2Error");
 		return false;
 	}
 	return true;
@@ -102,11 +103,29 @@ HRESULT CIssueWnd::WebView2CreateController(HRESULT result, ICoreWebView2Control
 					m_pParent->m_CtrlButtonForward.EnableWindow(flag ? TRUE : FALSE);
 					return S_OK;
 				}).Get(), nullptr);
+		// Update tab title
+		m_WebView->add_DocumentTitleChanged(
+			Callback<ICoreWebView2DocumentTitleChangedEventHandler>(
+				[this](ICoreWebView2* sender, IUnknown* args) -> HRESULT {
+					wil::unique_cotaskmem_string title;
+					sender->get_DocumentTitle(&title);
+					if (title.get()) {
+						CString str = title.get();
+						m_pParent->m_CtrlTabViewer.SetTabLabel(m_pParent->m_CtrlTabViewer.GetActiveTab(), str);
+					}
+					return S_OK;
+				}).Get(), nullptr);
 		CRect rect;
 		m_pParent->m_CtrlTabViewer.GetWndArea(rect);
 		m_WebViewController->put_Bounds(rect);
 		SetWindowPos(&wndBottom, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-		m_WebView->Navigate(m_RequestedUrl);
+		CString docType = L"<!doctype html>\n";
+		if (m_RequestedUrl.Left(docType.GetLength()) == docType) {
+			m_WebView->NavigateToString(m_RequestedUrl);
+		}
+		else {
+			m_WebView->Navigate(m_RequestedUrl);
+		}
 	}
 	return S_OK;
 }
@@ -119,14 +138,14 @@ bool CIssueWnd::WebView2GetLocalFilePathFromUri(const wil::unique_cotaskmem_stri
 		path = path.Mid(8);	// remove "file:///"
 	}
 	else {
-		m_pParent->MessageBox(CString(L"Only opening local file is allowed: ") + path, L"Error", MB_ICONERROR);
+		ShowMessageBox(CString(L"Only opening local file is allowed: ") + path, L"Error");
 		return false;
 	}
 	const int maxPath = 32767 + 1;
 	HRESULT hr = UrlUnescapeW(path.GetBuffer(maxPath), NULL, NULL, URL_UNESCAPE_INPLACE | URL_UNESCAPE_AS_UTF8);
 	path.ReleaseBuffer();
 	if (!SUCCEEDED(hr)) {
-		m_pParent->MessageBox(CString(L"Failed to get file path from URI: ") + uri.get(), L"Error", MB_ICONERROR);
+		ShowMessageBox(CString(L"Failed to get file path from URI: ") + uri.get(), L"Error");
 		return false;
 	}
 	outPath = path;
@@ -149,13 +168,13 @@ HRESULT CIssueWnd::NewWindowRequestHandler(ICoreWebView2* sender, ICoreWebView2N
 	}
 	// check if the file is .json and show issue
 	if (path.Right(5).CompareNoCase(L".json") != 0) {
-		m_pParent->MessageBox(CString(L"only .json file can be opened: ") + path, L"Invalid File", MB_ICONERROR);
+		ShowMessageBox(CString(L"only .json file can be opened: ") + path, L"Invalid File");
 		return S_OK;
 	}
 	// check if the file exists.
 	dwAttr = ::GetFileAttributes((LPCTSTR)path);
 	if (dwAttr == INVALID_FILE_ATTRIBUTES || (dwAttr & FILE_ATTRIBUTE_DIRECTORY)) {	// 指定ファイルがない場合
-		m_pParent->MessageBox(CString(L"File not found: ") + path, L"File not found", MB_ICONERROR);
+		ShowMessageBox(CString(L"File not found: ") + path, L"File not found");
 		return S_OK;
 	}
 
@@ -180,22 +199,35 @@ HRESULT CIssueWnd::NavigationStartingHandler(ICoreWebView2* sender, ICoreWebView
 	// ローカルファイルだった場合の処理
 	if (path.Left(LocalHost.GetLength()) == LocalHost) {
 		args->put_Cancel(TRUE);
+
+		// create path string
 		UrlUnescape(path.GetBuffer(), NULL, NULL, URL_UNESCAPE_INPLACE | URL_UNESCAPE_AS_UTF8);
-		path = path.Mid(LocalHost.GetLength() - 1);	// leave last '/'
+		path = path.Mid(LocalHost.GetLength());	// leave last '/'
 		path.SetAt(0, L'\\');
 		const int MAXPATH = 32767 + 1;
 		CString localPath = m_IssueFilePath;
-		localPath.Replace(L'/', L'\\');
-		path.Replace(L'/', L'\\');
-		if (!SUCCEEDED(PathCchRemoveFileSpec(localPath.GetBuffer(MAXPATH), MAXPATH))) {
-			localPath.ReleaseBuffer();
-			m_pParent->MessageBox(CString(L"PathCchRemoveFileSpec failed: ") + localPath);
-			return S_OK;
+
+		if (path.Right(1) == L"/") {
+			// a link from search result
+			localPath = m_pParent->m_AppFolderPath;
+			path = localPath + path + L"_issue.json";
 		}
-		localPath.ReleaseBuffer();
-		path = localPath + L"\\.." + path;
+		else {
+			// a link from issue
+			localPath.Replace(L'/', L'\\');
+			if (!SUCCEEDED(PathCchRemoveFileSpec(localPath.GetBuffer(MAXPATH), MAXPATH))) {
+				localPath.ReleaseBuffer();
+				ShowMessageBox(CString(L"PathCchRemoveFileSpec failed: ") + localPath, L"InternalError");
+				return S_OK;
+			}
+			localPath.ReleaseBuffer();
+			path = localPath + L"\\.." + path;
+		}
+		path.Replace(L'/', L'\\');
+
+		// open file
 		if (!PathFileExists(path)) {
-			m_pParent->MessageBox(CString(L"file does not exist: "), path);
+			ShowMessageBox(CString(L"file does not exist: ") + path, L"Error");
 			return S_OK;
 		}
 		if (path.Right(IssueFileName.GetLength()) == IssueFileName) {
@@ -205,10 +237,11 @@ HRESULT CIssueWnd::NavigationStartingHandler(ICoreWebView2* sender, ICoreWebView
 		}
 		HINSTANCE hInst = ::ShellExecute(NULL, L"open", path, NULL, NULL, SW_SHOWNORMAL);
 		if ((INT_PTR)hInst <= 32) {	// 戻り値が 32 より大きければ成功
-			m_pParent->MessageBox(CString(L"Failed to open file: ") + path);
+			ShowMessageBox(CString(L"Failed to open file: ") + path, L"Error");
 		}
 		return S_OK;
 	}
+
 	WebView2GetLocalFilePathFromUri(uri, path);
 
 	// issueファイルだった場合の処理
@@ -220,7 +253,7 @@ HRESULT CIssueWnd::NavigationStartingHandler(ICoreWebView2* sender, ICoreWebView
 	}
 
 	// Issue.htmlだった場合の処理
-	if (path.Right(IssueTemplate.GetLength()) == IssueTemplate) {
+	if (path.Right(IssueTemplate.GetLength() -1 ) == IssueTemplate.Mid(1)) {	// ignore '\\' on the head of IssueTemplate
 		m_pParent->m_CtrlTabViewer.SetTabLabel(m_pParent->m_CtrlTabViewer.GetActiveTab(), L"Start");
 		return S_OK;
 	}
@@ -230,15 +263,29 @@ HRESULT CIssueWnd::NavigationStartingHandler(ICoreWebView2* sender, ICoreWebView
 	return S_OK;
 }
 
+void CIssueWnd::ShowMessageBox(const CString& msg, const CString& title)
+{
+	if (m_pParent == NULL) {
+		OutputDebugString(L"Error: m_pParent is NULL\n");
+		MessageBox(msg, title, MB_OK | MB_ICONINFORMATION);
+		return;
+	}
+	CString* wParam = new CString;
+	CString* lParam = new CString;
+	*wParam = msg;
+	*lParam = title;
+	m_pParent->PostMessageW(WM_USER_SHOW_MESSAGE_BOX, (WPARAM)wParam, (LPARAM)lParam);
+}
+
 bool CIssueWnd::ShowIssue()
 {
 	nlohmann::json json = m_pParent->ReadJson(m_IssueFilePath);
 	if (json.empty()) {
-		m_pParent->MessageBox(L"Failed to open the file.", L"Error", MB_ICONERROR);
+		ShowMessageBox(L"Failed to open the file.", L"Error");
 		return false;
 	}
 	if (!json.contains("issue")) {
-		m_pParent->MessageBox(L"This json file does not include issue");
+		ShowMessageBox(L"This json file does not include issue", L"Error");
 		return false;
 	}
 
@@ -303,7 +350,7 @@ bool CIssueWnd::ShowIssue()
 		m_WebView->NavigateToString(CString(CA2W(injaOutput.c_str(), CP_UTF8)));
 	}
 	catch (const std::exception& e) {
-		m_pParent->MessageBox(CString(L"Failed to render HTML: ") + CString(e.what()), L"Error", MB_ICONERROR);
+		ShowMessageBox(CString(L"Failed to render HTML: ") + CString(e.what()), L"Error");
 		return false;
 	}
 
@@ -437,7 +484,7 @@ void CIssueWnd::OnClose()
 	auto& tab = m_pParent->m_CtrlTabViewer;
 	int nIndex = tab.GetTabFromHwnd(m_hWnd);
 	if (nIndex < 0) {
-		MessageBox(L"Failed to find tab to close", L"WARNING", MB_ICONINFORMATION);
+		ShowMessageBox(L"Failed to find tab to close", L"WARNING");
 		return;
 	}
 	int nActiveTab = tab.GetActiveTab();

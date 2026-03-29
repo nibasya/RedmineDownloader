@@ -16,8 +16,11 @@ const CString IssuePrioritiesFileName(_T("\\issue_priorities.json"));
 
 const CString IssueListCacheFileName(L"\\issue_Cache.json");
 
-const CString IssueTemplate(_T("/Issue.html"));
+const CString ProjectInfoTemplate(_T("\\ProjectInfo.html"));
+const CString IssueTemplate(_T("\\Issue.html"));
 const CString LocalHost(_T("https://redmineviewer.example"));
+const CString SearchResultTemplate(_T("\\SearchResult.html"));
+const CString SearchCacheFileName(L"\\search_cache.json");
 
 CString GetFileNameFromJson(const CString& fileName, const CString& ID) {
 	CString ret;

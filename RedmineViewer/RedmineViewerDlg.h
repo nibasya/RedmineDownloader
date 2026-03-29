@@ -50,8 +50,11 @@ public:
 	afx_msg void OnDropFiles(HDROP hDropInfo);
 	afx_msg void OnBnClickedButtonRecache();
 	afx_msg void OnBnClickedButtonFind();
+	afx_msg LPARAM OnShowMessageBox(WPARAM wParam, LPARAM lParam);
+	virtual void PostNcDestroy();
 
 public:
+	CString m_AppFolderPath;	// アプリケーションのフォルダパス
 	CString m_WebViewTempFolder;	// WebView2の一時フォルダの場所
 	wil::com_ptr<ICoreWebView2Environment> m_pWebEnvironment;	// environmentはアプリケーション内で使いまわす
 	CRect m_DefParentRect;	// ウィンドウの最小サイズ
@@ -61,6 +64,8 @@ public:
 
 	// common JSON data for issue
 	inja::Template m_IssueTemplate;	// holds Issue.html data
+	inja::Template m_SearchResultTemplate;	// holds Search result.html data
+	inja::Template m_ProjectTemplate;	// holds ProjectInfo.html data
 	inja::Environment m_InjaEnv;	// holds callback functions
 	std::map<int, std::string> m_Members;
 	std::map<int, std::string> m_Statuses;
@@ -68,19 +73,26 @@ public:
 	std::map<int, std::string> m_Priorities;
 
 	nlohmann::json ReadJson(const wchar_t* filePath);
-	void AddTab();
+	void AddStartTab();
 	void AddTab(CString file);
 
 private:
 	void LoadCommonData();
 	void LoadSetting();
 	void SaveSetting();
-	void LoadIssues();
+	void LoadIssues(bool reflesh);
 	void SetupCallbacks();
 
-	void SearchIssueList(std::map<int, std::vector<std::string>>& result, const nlohmann::json& issueList, const std::string& query);
-	void SearchIssue(std::vector<std::string>& result, const nlohmann::json& issue, const std::string& query, const std::string& path = "");
-	virtual void PostNcDestroy();
+	void SearchIssueList(std::vector<nlohmann::json>& result, const nlohmann::json& issueList, const std::string& query);
+	void SearchIssue(nlohmann::json& result, const nlohmann::json& issue, const nlohmann::json& givenKey, const std::string& query);
+	/// <summary>
+	/// Extracts text including key from str with length limit
+	/// </summary>
+	/// <param name="str">source text</param>
+	/// <param name="key">key</param>
+	/// <param name="length">total length of extracted text</param>
+	/// <returns>extracted text</returns>
+	CString ExtractContext(const CString& str, const CString& key, int length);
 };
 
 // inja callbacks
@@ -92,3 +104,9 @@ inja::json CallbackUtcToLocal(inja::Arguments& args);
 inja::json CallbackUtcToAgo(inja::Arguments& args);
 /// <summary>Convert UTC time string to "YYYY/MM/DD" format string</summary>
 inja::json CallbackUtcToYMD(inja::Arguments& args);
+/// <summary>Limit the length of the string</summary>
+/// <param name="args">1st argument: string to limit, 2nd argument: length limit</param>
+inja::json CallbackLimitStr(inja::Arguments& args);
+
+// user-defined messeges
+#define WM_USER_SHOW_MESSAGE_BOX (WM_USER + 101)
