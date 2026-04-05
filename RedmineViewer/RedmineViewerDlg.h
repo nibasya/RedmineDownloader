@@ -72,7 +72,13 @@ public:
 	std::map<int, std::string> m_Trackers;
 	std::map<int, std::string> m_Priorities;
 
-	nlohmann::json ReadJson(const wchar_t* filePath);
+	/// <summary>
+	/// wrapper function of json::pharse() with file check and error message box
+	/// </summary>
+	/// <param name="filePath">path with filename of the JSON file</param>
+	/// <param name ="suppressMessageBox">if true, suppress message box when error occurs and throw std::exception</param>
+	/// <returns>Returns read json. If any error, show error message box and return empty json.</returns>
+	nlohmann::json ReadJson(const wchar_t* filePath, bool suppressMessageBox = false);
 	void AddStartTab();
 	void AddTab(CString file);
 
@@ -81,6 +87,9 @@ private:
 	void LoadSetting();
 	void SaveSetting();
 	void LoadIssues(bool reflesh);
+	nlohmann::json ScanLocalFolder();	// scan local files to find issues and list them up for UpdateCache()
+	nlohmann::json CreateUpdateList(nlohmann::json& downloadedList);
+	void UpdateCache(const nlohmann::json& updateList);
 	void SetupCallbacks();
 
 	void SearchIssueList(std::vector<nlohmann::json>& result, const nlohmann::json& issueList, const std::string& query);
