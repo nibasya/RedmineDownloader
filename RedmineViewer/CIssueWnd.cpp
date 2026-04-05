@@ -171,11 +171,22 @@ HRESULT CIssueWnd::NewWindowRequestHandler(ICoreWebView2* sender, ICoreWebView2N
 		ShowMessageBox(CString(L"only .json file can be opened: ") + path, L"Invalid File");
 		return S_OK;
 	}
+
 	// check if the file exists.
 	dwAttr = ::GetFileAttributes((LPCTSTR)path);
 	if (dwAttr == INVALID_FILE_ATTRIBUTES || (dwAttr & FILE_ATTRIBUTE_DIRECTORY)) {	// 指定ファイルがない場合
 		ShowMessageBox(CString(L"File not found: ") + path, L"File not found");
 		return S_OK;
+	}
+
+	// check if the file is under the app folder. if not, show error message because of security reason (to prevent access to unexpected files by drag&drop)
+	{
+		CString appFolderPath = m_pParent->m_AppFolderPath;
+		appFolderPath.Replace(L"\\", L"/");
+		if (path.Find(appFolderPath) != 0) {
+			ShowMessageBox(CString(L"Only files under the application folder can be opened: ") + path, L"Invalid File");
+			return S_OK;
+		}
 	}
 
 	m_pParent->AddTab(path);
