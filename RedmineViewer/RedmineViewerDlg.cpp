@@ -575,6 +575,20 @@ void CRedmineViewerDlg::LoadIssues(bool reflesh)
 	}
 	updateList = CreateUpdateList(downloadedList);
 	UpdateCache(updateList);
+	if (!fListExists) {
+		iRet = MessageBox(L"Create issue list in place of RedmineDownloader?", L"Create issue list", MB_YESNO);
+		if(iRet == IDYES) {
+			// create issue list in place of RedmineDownloader
+			std::ofstream ofs(listFileName);
+			if (ofs.is_open()) {
+				ofs << downloadedList.dump(4);
+				ofs.close();
+			}
+			else {
+				MessageBox(L"Failed to create issue list file.", L"Error", MB_ICONERROR);
+			}
+		}
+	}
 }
 
 nlohmann::json CRedmineViewerDlg::ScanLocalFolder()
@@ -606,9 +620,11 @@ nlohmann::json CRedmineViewerDlg::ScanLocalFolder()
 			}
 			iRet = MessageBox(CString(
 				L"Failed to read file.\n"
+				L"\n"
 				L"Yes: continue\n"
 				L"No : continue, but never show error message\n"
 				L"Cancel : stop reading\n"
+				L"\n"
 				L"Filename : ") + issueFilePath
 				+ L"\nError : " + CString(e.what()),
 				L"Error", MB_YESNOCANCEL);
@@ -692,6 +708,7 @@ void CRedmineViewerDlg::UpdateCache(const nlohmann::json& updateList)
 				iRet = MessageBox(CString(L"Issue file: ") + file + L" is missing.\n"
 					L"Preferred to execute RedmineDownloader.\n"
 					L"Continue ? \n"
+					L"\n"
 					L"Yes: continue\n"
 					L"No: continue, and never show this message again\n"
 					L"Continue: stop reading",
@@ -713,10 +730,12 @@ void CRedmineViewerDlg::UpdateCache(const nlohmann::json& updateList)
 					continue;
 				}
 				iRet = MessageBox(CString(
-					L"Failed to read file.\n"
+					L"Failed to read file. Continue?\n"
+					L"\n"
 					L"Yes: continue\n"
 					L"No : continue, but never show error message\n"
 					L"Cancel : stop reading\n"
+					L"\n"
 					L"Filename : ") + file
 					+ L"\nError : " + CString(e.what()),
 					L"Error", MB_YESNOCANCEL);
